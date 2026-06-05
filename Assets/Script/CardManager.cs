@@ -1,87 +1,114 @@
 using UnityEngine;
+using UnityEngine.Pool;
 using System.Collections.Generic;
-using DG.Tweening;
+using TMPro;
 
 public class CardManager : MonoBehaviour
 {
-    [SerializeField] private float curveRadius = 500f;    
-    [SerializeField] private float overlapRatio = 0.6f;     
-    [SerializeField] private float cardWidth = 120f;        
-    [SerializeField] private float layoutAnimDuration = 0.3f;
-    [SerializeField] private Transform cardContainer;       
+    public static CardManager Instance { get; private set; }
 
-    private List<RectTransform> _cards = new List<RectTransform>();
-    private static CardManager _instance;
+    [Header("Pool & Deck Settings")]
+    [SerializeField] private CardDisplay cardPrefab;
+    [SerializeField] private Transform handLayoutGroup;
+    [SerializeField] private List<CardData> deckList = new List<CardData>(); 
+
+    [Header("Action Point (AP) System")]
+    [SerializeField] private int maxActionPoints = 8;
+    [SerializeField] private TMP_Text playerAPText; 
+    
+    private int currentActionPoints;
+    private IObjectPool<CardDisplay> cardPool;
 
     private void Awake()
     {
-        if (_instance == null)
-        {
-            _instance = this;
-        }
-        else
-        {
-            Destroy(gameObject);
-        }
+        if (Instance == null) Instance = this;
+        else Destroy(gameObject);
+
+        cardPool = new ObjectPool<CardDisplay>(
+            CreateNewCardInstance, OnTakeCardFromPool, OnReturnCardToPool, OnDestroyPoolObject,
+            true, 10, 50
+        );
     }
 
-    public void RegisterCard(RectTransform cardRect)
+    private void Start()
     {
-        if (!_cards.Contains(cardRect))
-        {
-            _cards.Add(cardRect);
-            RefreshLayout();
-        }
-    }
+        ResetActionPoints();
 
-    public void UnregisterCard(RectTransform cardRect)
-    {
-        if (_cards.Contains(cardRect))
+        for (int i = 0; i < 4; i++)
         {
-            _cards.Remove(cardRect);
-            RefreshLayout();
+            DrawNextCard();
         }
     }
 
-    public void RefreshLayout()
+    public bool UseCardOnTarget(CardDisplay card, Enemy targetEnemy)
     {
-        int cardCount = _cards.Count;
-        if (cardCount == 0) return;
+        CardData cardData = card.CurrentCardData;
 
-        for (int i = 0; i < cardCount; i++)
+        if (!PlayerManager.Instance.CanAffordAndSpend(cardData.actionPointCost, cardData.manaCost))
         {
-            Vector3 targetPos = CalculateCardPosition(i, cardCount);
-            int targetSortingOrder = i; 
+            Debug.LogWarning($"[Combat Info] Resource lu gak cukup buat mainin {cardData.cardName}!");
+            return false;
+        }
 
-            RectTransform card = _cards[i];
-            
-            card.DOAnchorPos3D(targetPos, layoutAnimDuration)
-                .SetEase(Ease.OutQuad);
+        if (cardData.attackPower > 0)
+        {
+            targetEnemy.TakeDamage(cardData.attackPower);
+        }
 
-            Canvas canvas = card.GetComponent<Canvas>();
-            if (canvas) canvas.sortingOrder = targetSortingOrder;
+        if (cardData.specialEffect != null)
+        {
+            cardData.specialEffect.ExecuteEffect(targetEnemy, card);
+        }
+
+        currentActionPoints -= cardData.actionPointCost;
+        UpdateAPUI();
+
+        Debug.Log($"[Combat Loop] Kartu {cardData.cardName} sukses digunakan. Sisa AP: {currentActionPoints}");
+
+        DespawnCard(card);
+        DrawNextCard();
+
+        return true;
+    }
+
+    public void ResetActionPoints()
+    {
+        currentActionPoints = maxActionPoints;
+        UpdateAPUI();
+    }
+
+    private void UpdateAPUI()
+    {
+        if (playerAPText != null)
+        {
+            playerAPText.text = $"AP: {currentActionPoints}/{maxActionPoints}";
         }
     }
 
-    private Vector3 CalculateCardPosition(int index, int totalCards)
+    public void DrawNextCard()
     {
-       
-        float spacing = cardWidth * (1f - overlapRatio);
-
-        float totalWidth = (totalCards - 1) * spacing;
-        float startX = -totalWidth * 0.5f;
-        float xPos = startX + (index * spacing);
-
-        float normalizedX = xPos / (curveRadius * 0.5f);
-        normalizedX = Mathf.Clamp(normalizedX, -1f, 1f);
-        
-        float yPos = -(normalizedX * normalizedX) * 20f;
-
-        return new Vector3(xPos, yPos, 0f);
+        if (deckList.Count > 0)
+        {
+            CardData nextCardData = deckList[Random.Range(0, deckList.Count)];
+            SpawnCardToHand(nextCardData);
+        }
     }
 
-    public int GetCardIndex(RectTransform cardRect)
+    public void SpawnCardToHand(CardData dataToSpawn)
     {
-        return _cards.IndexOf(cardRect);
+        CardDisplay spawnedCard = cardPool.Get();
+        spawnedCard.transform.SetParent(handLayoutGroup, false);
+        spawnedCard.Initialize(dataToSpawn);
+        if (spawnedCard.TryGetComponent<CardDraggable>(out var drag)) 
+        {
+            drag.UpdateCanvasSorting();
+        }
     }
+
+    public void DespawnCard(CardDisplay cardToDiscard) => cardPool.Release(cardToDiscard);
+
+    private CardDisplay CreateNewCardInstance() => Instantiate(cardPrefab, handLayoutGroup);
+    private void OnTakeCardFromPool(CardDisplay card) => card.gameObject.SetActive(true);
+    private void OnReturnCardToPool(CardDisplay card) => card.gameObject.SetActive(false);
+    private void OnDestroyPoolObject(CardDisplay card) => Destroy(card.gameObject);
 }

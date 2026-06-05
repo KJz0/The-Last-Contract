@@ -1,14 +1,13 @@
+using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
+using TMPro; 
 
 public class CardDraggable : MonoBehaviour, IPointerDownHandler, IBeginDragHandler, IDragHandler, IEndDragHandler, IPointerEnterHandler, IPointerExitHandler
 {
-    // ====================================================================
-    // GLOBAL MEDIATOR: Menyimpan data kartu mana yang SEKARANG lagi dikunci infonya.
-    // Variabel static ini di-share dan diakses oleh semua kartu di game lu.
-    // ====================================================================
     public static CardDraggable activeStickyCard;
 
     [Header("Movement Tuning")]
@@ -20,11 +19,9 @@ public class CardDraggable : MonoBehaviour, IPointerDownHandler, IBeginDragHandl
     [SerializeField] private float tiltSensitivity = 0.6f;
     [SerializeField] private float tiltSmoothSpeed = 12f;
 
-    [Header("UI References (Hover Info)")]
-    [SerializeField] private GameObject tooltipObject; 
-    [SerializeField] private float hoverScaleAmount = 1.15f; 
-
-    [Header("Hover Settings")]
+    [Header("Tooltip Settings ")]
+    [SerializeField] private GameObject tooltipPanel; 
+    [SerializeField] private float hoverScaleAmount = 1.15f;
     [SerializeField] private float hoverYOffset = 40f; 
 
     [HideInInspector] public Vector3 homePosition;
@@ -33,37 +30,27 @@ public class CardDraggable : MonoBehaviour, IPointerDownHandler, IBeginDragHandl
     private RectTransform rectTransform;
     private CanvasGroup canvasGroup;
     private Canvas cardCanvas; 
+    private CardDisplay cardDisplay;
+    private TMP_Text tooltipText;
 
     private bool isDragging = false;
     private bool isHovered = false;
     private bool isClicked = false; 
-    
     private Vector3 dragOffset;
     private Vector3 lastMousePosition;
     private float currentTiltZ = 0f;
 
     private void Awake()
     {
-        rectTransform = GetComponent<RectTransform>();
-        canvasGroup = GetComponent<CanvasGroup>();
-        
-        cardCanvas = GetComponent<Canvas>();
-        if (cardCanvas == null)
-        {
-            cardCanvas = gameObject.AddComponent<Canvas>();
-        }
-        cardCanvas.overrideSorting = true;
-        cardCanvas.sortingOrder = 0; 
+        InitializeComponents();
+        InitializeCanvasForCard();
+        InitializeTooltip();
+        StoreHomePosition();
+    }
 
-        if (GetComponent<GraphicRaycaster>() == null)
-        {
-            gameObject.AddComponent<GraphicRaycaster>();
-        }
-
-        homePosition = rectTransform.localPosition;
-        homeRotation = rectTransform.localRotation;
-
-        if (tooltipObject != null) tooltipObject.SetActive(false); 
+    private void Start()
+    {
+        UpdateCanvasSorting();
     }
 
     private void Update()
@@ -72,9 +59,50 @@ public class CardDraggable : MonoBehaviour, IPointerDownHandler, IBeginDragHandl
         HandleCardPhysics();
     }
 
+    // --- INITIALIZATION ---
+
+    private void InitializeComponents()
+    {
+        rectTransform = GetComponent<RectTransform>();
+        canvasGroup = GetComponent<CanvasGroup>();
+        cardDisplay = GetComponent<CardDisplay>();
+    }
+
+    private void InitializeCanvasForCard()
+    {
+        cardCanvas = GetComponent<Canvas>();
+        if (cardCanvas == null)
+        {
+            cardCanvas = gameObject.AddComponent<Canvas>();
+        }
+        cardCanvas.overrideSorting = true;
+        cardCanvas.sortingOrder = 0;
+
+        if (GetComponent<GraphicRaycaster>() == null)
+        {
+            gameObject.AddComponent<GraphicRaycaster>();
+        }
+    }
+
+    private void InitializeTooltip()
+    {
+        if (tooltipPanel != null) 
+        {
+            tooltipText = tooltipPanel.GetComponentInChildren<TMP_Text>();
+            tooltipPanel.SetActive(false); 
+        }
+    }
+
+    private void StoreHomePosition()
+    {
+        homePosition = rectTransform.localPosition;
+        homeRotation = rectTransform.localRotation;
+    }
+
+    // --- TOOLTIP & INTERACTION LOGIC ---
+
     private void HandleTooltipStickyLogic()
     {
-        // Deteksi klik kiri di layar (klik tempat kosong buat nutup kuncian)
         if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame)
         {
             if (!isHovered && isClicked)
@@ -85,12 +113,35 @@ public class CardDraggable : MonoBehaviour, IPointerDownHandler, IBeginDragHandl
         }
 
         bool shouldShowTooltip = isHovered || isClicked || isDragging;
-
-        if (tooltipObject != null && tooltipObject.activeSelf != shouldShowTooltip)
-        {
-            tooltipObject.SetActive(shouldShowTooltip);
-        }
+        UpdateTooltipDisplay(shouldShowTooltip);
     }
+
+    private void UpdateTooltipDisplay(bool shouldShow)
+    {
+        if (tooltipPanel == null || tooltipPanel.activeSelf == shouldShow) return;
+
+        if (shouldShow && tooltipText != null && cardDisplay != null && cardDisplay.CurrentCardData != null)
+        {
+            BuildTooltipText();
+        }
+
+        tooltipPanel.SetActive(shouldShow);
+    }
+
+    private void BuildTooltipText()
+    {
+        CardData cardData = cardDisplay.CurrentCardData;
+        string tooltipContent = cardData.description;
+
+        if (cardData.attackPower > 0)
+        {
+            tooltipContent += $"\n\nDMG: {cardData.attackPower}";
+        }
+
+        tooltipText.text = tooltipContent;
+    }
+
+    // --- CARD PHYSICS ---
 
     private void HandleCardPhysics()
     {
@@ -98,86 +149,108 @@ public class CardDraggable : MonoBehaviour, IPointerDownHandler, IBeginDragHandl
 
         if (isDragging)
         {
-            Vector3 targetPosition = currentMousePos + dragOffset;
-            rectTransform.position = Vector3.Lerp(rectTransform.position, targetPosition, Time.deltaTime * moveSmoothSpeed);
-
-            float mouseDeltaX = currentMousePos.x - lastMousePosition.x;
-            float targetTilt = -mouseDeltaX * tiltSensitivity;
-            targetTilt = Mathf.Clamp(targetTilt, -maxTiltAngle, maxTiltAngle);
-            currentTiltZ = Mathf.Lerp(currentTiltZ, targetTilt, Time.deltaTime * tiltSmoothSpeed);
-            
-            rectTransform.localRotation = Quaternion.Euler(0, 0, currentTiltZ);
+            UpdateDraggingPosition(currentMousePos);
         }
         else
         {
-            if (homeRotation.x == 0f && homeRotation.y == 0f && homeRotation.z == 0f && homeRotation.w == 0f)
-            {
-                homeRotation = Quaternion.identity; 
-            }
-
-            Vector3 targetLocalPosition = homePosition;
-
-            if (isHovered || isClicked)
-            {
-                targetLocalPosition += new Vector3(0, hoverYOffset, 0);
-            }
-
-            rectTransform.localPosition = Vector3.Lerp(rectTransform.localPosition, targetLocalPosition, Time.deltaTime * snapBackSpeed);
-            rectTransform.localRotation = Quaternion.Lerp(rectTransform.localRotation, homeRotation, Time.deltaTime * snapBackSpeed);
-            
-            currentTiltZ = rectTransform.localRotation.eulerAngles.z;
-            if (currentTiltZ > 180) currentTiltZ -= 360f; 
+            UpdateRestingPosition();
         }
 
-        float targetScale = (isHovered || isClicked) && !isDragging ? hoverScaleAmount : 1f;
-        rectTransform.localScale = Vector3.Lerp(rectTransform.localScale, Vector3.one * targetScale, Time.deltaTime * 10f);
-
+        UpdateCardScale();
         lastMousePosition = currentMousePos;
     }
 
-    private void UpdateCanvasSorting()
+    private void UpdateDraggingPosition(Vector3 currentMousePos)
     {
-        if (cardCanvas != null)
+        Vector3 targetPosition = currentMousePos + dragOffset;
+        rectTransform.position = Vector3.Lerp(rectTransform.position, targetPosition, Time.deltaTime * moveSmoothSpeed);
+
+        float mouseDeltaX = currentMousePos.x - lastMousePosition.x;
+        float targetTilt = -mouseDeltaX * tiltSensitivity;
+        targetTilt = Mathf.Clamp(targetTilt, -maxTiltAngle, maxTiltAngle);
+        currentTiltZ = Mathf.Lerp(currentTiltZ, targetTilt, Time.deltaTime * tiltSmoothSpeed);
+        
+        rectTransform.localRotation = Quaternion.Euler(0, 0, currentTiltZ);
+    }
+
+    private void UpdateRestingPosition()
+    {
+        ValidateHomeRotation();
+
+        Vector3 targetLocalPosition = homePosition;
+        if (isHovered || isClicked)
         {
-            cardCanvas.sortingOrder = (isHovered || isDragging || isClicked) ? 100 : 0;
+            targetLocalPosition += new Vector3(0, hoverYOffset, 0);
+        }
+
+        rectTransform.localPosition = Vector3.Lerp(rectTransform.localPosition, targetLocalPosition, Time.deltaTime * snapBackSpeed);
+        rectTransform.localRotation = Quaternion.Lerp(rectTransform.localRotation, homeRotation, Time.deltaTime * snapBackSpeed);
+        
+        currentTiltZ = rectTransform.localRotation.eulerAngles.z;
+        if (currentTiltZ > 180) currentTiltZ -= 360f;
+    }
+
+    private void UpdateCardScale()
+    {
+        float targetScale = (isHovered || isClicked) && !isDragging ? hoverScaleAmount : 1f;
+        rectTransform.localScale = Vector3.Lerp(rectTransform.localScale, Vector3.one * targetScale, Time.deltaTime * 10f);
+    }
+
+    private void ValidateHomeRotation()
+    {
+        if (homeRotation.x == 0f && homeRotation.y == 0f && homeRotation.z == 0f && homeRotation.w == 0f)
+        {
+            homeRotation = Quaternion.identity; 
         }
     }
 
-    // ====================================================================
-    // FUNGSI MANDIRI: Buat ngelepas status kuncian kartu & benerin sorting-nya
-    // ====================================================================
+    // --- CANVAS SORTING ---
+
+    public void UpdateCanvasSorting()
+    {
+        if (cardCanvas != null)
+        {
+            int baseSortingOrder = transform.GetSiblingIndex();
+            cardCanvas.sortingOrder = (isHovered || isDragging || isClicked) ? 100 : baseSortingOrder;
+        }
+    }
+
     public void ReleaseStickyLock()
     {
         isClicked = false;
         UpdateCanvasSorting();
     }
 
+    // --- POINTER EVENTS ---
+
     public void OnPointerDown(PointerEventData eventData)
     {
-        isClicked = !isClicked; 
-
-        if (isClicked)
-        {
-            // Jika ada kartu LAIN yang lagi kekunci, paksa dia lepas dulu sebelum kita ganti posisi
-            if (activeStickyCard != null && activeStickyCard != this)
-            {
-                activeStickyCard.ReleaseStickyLock();
-            }
-            activeStickyCard = this; // Daftarkan kartu ini sebagai pemegang kuncian global baru
-        }
-        else
-        {
-            if (activeStickyCard == this)
-            {
-                activeStickyCard = null; // Hapus pendaftaran kalau statusnya di-unclick manual
-            }
-        }
-
+        isClicked = !isClicked;
+        HandleStickyCardLogic();
         UpdateCanvasSorting();
 
         Vector3 currentMousePos = GetCurrentMousePosition();
         dragOffset = rectTransform.position - currentMousePos;
         lastMousePosition = currentMousePos;
+    }
+
+    private void HandleStickyCardLogic()
+    {
+        if (isClicked)
+        {
+            if (activeStickyCard != null && activeStickyCard != this)
+            {
+                activeStickyCard.ReleaseStickyLock();
+            }
+            activeStickyCard = this; 
+        }
+        else
+        {
+            if (activeStickyCard == this)
+            {
+                activeStickyCard = null; 
+            }
+        }
     }
 
     public void OnBeginDrag(PointerEventData eventData)
@@ -191,24 +264,37 @@ public class CardDraggable : MonoBehaviour, IPointerDownHandler, IBeginDragHandl
 
     public void OnEndDrag(PointerEventData eventData)
     {
-        isDragging = false;
+        isDragging = false; 
         UpdateCanvasSorting(); 
         if (canvasGroup != null) canvasGroup.blocksRaycasts = true;
+
+        TryUseCardOnTarget(eventData);
+    }
+
+    private void TryUseCardOnTarget(PointerEventData eventData)
+    {
+        if (eventData.pointerCurrentRaycast.gameObject != null)
+        {
+            GameObject hitObject = eventData.pointerCurrentRaycast.gameObject;
+            Enemy enemyTarget = hitObject.GetComponentInParent<Enemy>();
+
+            if (enemyTarget != null)
+            {
+                CardDisplay thisCardDisplay = GetComponent<CardDisplay>();
+                bool isSuccess = CardManager.Instance.UseCardOnTarget(thisCardDisplay, enemyTarget);
+                if (isSuccess) return;
+            }
+        }
     }
 
     public void OnPointerEnter(PointerEventData eventData)
     {
         isHovered = true;
 
-        // ====================================================================
-        // MEKANIK BARU: Deteksi Kartu Lain Saat Di-hover
-        // Jika mouse masuk ke kartu ini, dan ada kartu lain yang lagi kuncian (Sticky),
-        // paksa kartu lama itu buat langsung lepas kuncian dan turun!
-        // ====================================================================
         if (activeStickyCard != null && activeStickyCard != this)
         {
             activeStickyCard.ReleaseStickyLock();
-            activeStickyCard = null; // Reset mediator karena kuncian lama udah buyar
+            activeStickyCard = null; 
         }
 
         UpdateCanvasSorting();
@@ -220,19 +306,20 @@ public class CardDraggable : MonoBehaviour, IPointerDownHandler, IBeginDragHandl
         UpdateCanvasSorting(); 
     }
 
-    // Pengaman memory leak: kalau kartu dihancurkan/di-disable pas lagi kekunci, reset static pointer-nya
-    private void OnDisable()
-    {
-        if (activeStickyCard == this)
-        {
-            activeStickyCard = null;
-        }
-    }
+    // --- UTILITY ---
 
     private Vector3 GetCurrentMousePosition()
     {
         if (Mouse.current != null) return Mouse.current.position.ReadValue();
         if (Pointer.current != null) return Pointer.current.position.ReadValue();
         return Vector3.zero;
+    }
+
+    private void OnDisable()
+    {
+        if (activeStickyCard == this)
+        {
+            activeStickyCard = null;
+        }
     }
 }

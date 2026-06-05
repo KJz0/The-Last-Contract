@@ -4,16 +4,15 @@ using System.Collections.Generic;
 public class HandManager : MonoBehaviour
 {
     [Header("Hand Curve Layout Settings")]
-    [SerializeField] private float cardSpacing = 120f;     // Jarak horizontal antar kartu
-    [SerializeField] private float curveIntensity = 15f;   // Seberapa melengkung ke bawah kartu di pinggir
-    [SerializeField] private float rotationIntensity = 5f; // Seberapa miring kartu di pinggir (kipas)
-    [SerializeField] private float verticalOffset = -20f;  // Dorong keseluruhan lengkungan ke atas/bawah
+    [SerializeField] private float cardSpacing = 120f;   
+    [SerializeField] private float curveIntensity = 15f;  
+    [SerializeField] private float rotationIntensity = 5f; 
+    [SerializeField] private float verticalOffset = -20f; 
 
     private List<CardDraggable> cardsInHand = new List<CardDraggable>();
 
     private void OnTransformChildrenChanged()
     {
-        // Fungsi ini sekarang HANYA bakal jalan kalau beneran ada kartu baru ditarik (Draw) atau kartu dibuang (Play)
         UpdateHandLayout();
     }
 
@@ -25,6 +24,12 @@ public class HandManager : MonoBehaviour
     [ContextMenu("Refresh Layout")] 
     public void UpdateHandLayout()
     {
+        CollectCardsInHand();
+        LayoutCardsInCurve();
+    }
+
+    private void CollectCardsInHand()
+    {
         cardsInHand.Clear();
         
         foreach (Transform child in transform)
@@ -35,7 +40,10 @@ public class HandManager : MonoBehaviour
                 cardsInHand.Add(card);
             }
         }
+    }
 
+    private void LayoutCardsInCurve()
+    {
         int totalCards = cardsInHand.Count;
         if (totalCards == 0) return;
 
@@ -43,18 +51,21 @@ public class HandManager : MonoBehaviour
 
         for (int i = 0; i < totalCards; i++)
         {
-            float cardOffset = i - centerIndex;
-
-            float posX = cardOffset * cardSpacing;
-            float posY = -Mathf.Pow(cardOffset, 2) * curveIntensity + verticalOffset;
-            float rotZ = -cardOffset * rotationIntensity;
-
-            cardsInHand[i].homePosition = new Vector3(posX, posY, 0f);
-            cardsInHand[i].homeRotation = Quaternion.Euler(0f, 0f, rotZ);
-            
-            // Atur sibling index bawaan biar susunan numpuknya rapi secara default
-            cardsInHand[i].transform.SetSiblingIndex(i);
+            ApplyCardLayout(i, centerIndex);
         }
+    }
+
+    private void ApplyCardLayout(int cardIndex, float centerIndex)
+    {
+        float cardOffset = cardIndex - centerIndex;
+
+        float posX = cardOffset * cardSpacing;
+        float posY = -Mathf.Pow(cardOffset, 2) * curveIntensity + verticalOffset;
+        float rotZ = -cardOffset * rotationIntensity;
+
+        cardsInHand[cardIndex].homePosition = new Vector3(posX, posY, 0f);
+        cardsInHand[cardIndex].homeRotation = Quaternion.Euler(0f, 0f, rotZ);
+        cardsInHand[cardIndex].transform.SetSiblingIndex(cardIndex);
     }
 
     private void OnValidate()
