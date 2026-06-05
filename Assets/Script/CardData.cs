@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
 
@@ -8,26 +9,31 @@ public enum CardType
     Buff
 }
 
-[CreateAssetMenu(fileName = "NewCardData", menuName = "CardGame/Card Data")]
+[CreateAssetMenu(
+    fileName = "NewCardData",
+    menuName = "CardGame/Card Data")]
 public class CardData : ScriptableObject
 {
     [Header("Identity")]
     public string cardID;
+
     public string cardName;
-    public CardType cardType = CardType.Attack;
-    [TextArea(2, 5)] public string description;
 
-    [Header("Resource Costs")]
+    public CardType cardType;
+
+    [TextArea]
+    public string description;
+
+    [Header("Cost")]
     public int actionPointCost;
-    public int manaCost = 0;
 
-    [Header("Stats")]
-    public int attackPower;
+    public int manaCost;
 
-    [Header("Custom Effect (Optional)")]
-    public CardEffect specialEffect;
+    [Header("Effects")]
+    public List<CardEffect> effects = new();
 
-    [Header("Visuals (Addressables)")]
+    [Header("Visual")]
     public AssetReferenceSprite cardArtReference;
+
     public AssetReferenceSprite cardTypeIconReference;
 }

@@ -132,12 +132,6 @@ public class CardDraggable : MonoBehaviour, IPointerDownHandler, IBeginDragHandl
     {
         CardData cardData = cardDisplay.CurrentCardData;
         string tooltipContent = cardData.description;
-
-        if (cardData.attackPower > 0)
-        {
-            tooltipContent += $"\n\nDMG: {cardData.attackPower}";
-        }
-
         tooltipText.text = tooltipContent;
     }
 

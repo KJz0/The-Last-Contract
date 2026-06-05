@@ -11,7 +11,9 @@ public class Enemy : MonoBehaviour
     [Header("UI References")]
     [SerializeField] private TMP_Text healthText;
 
-    private Dictionary<string, int> activeStatusEffects = new Dictionary<string, int>();
+    private readonly List<StatusEffectInstance>
+    activeEffects =
+        new List<StatusEffectInstance>();
 
     private void Start()
     {
@@ -33,54 +35,45 @@ public class Enemy : MonoBehaviour
         }
     }
 
-    public void ApplyStatusEffect(string effectName, int duration)
-    {
-        if (activeStatusEffects.ContainsKey(effectName))
-        {
-            activeStatusEffects[effectName] = duration;
-        }
-        else
-        {
-            activeStatusEffects.Add(effectName, duration);
-        }
+    public void AddStatusEffect(
 
-        Debug.Log($"[Effect] Musuh terkena efek {effectName} selama {duration} turn!");
+        StatusEffect effect,
+        int duration,
+        int value)
+    {
+        StatusEffectInstance instance =
+            new StatusEffectInstance(
+                effect,
+                duration,
+                value);
+
+        activeEffects.Add(instance);
+
+        effect.OnApply(
+            this,
+            instance);
     }
-
-    public void UpdateStatusEffects()
+    public void TickStatusEffects()
     {
-        List<string> effectsToRemove = new List<string>();
-        List<string> activeEffects = new List<string>(activeStatusEffects.Keys);
-
-        foreach (var effect in activeEffects)
+        for(int i = activeEffects.Count - 1; i >= 0; i--)
         {
-            activeStatusEffects[effect]--;
+            StatusEffectInstance effect =
+                activeEffects[i];
 
-            if (activeStatusEffects[effect] <= 0)
+            effect.effect.OnTick(
+                this,
+                effect);
+
+            effect.duration--;
+
+            if(effect.duration <= 0)
             {
-                effectsToRemove.Add(effect);
-            }
-            else
-            {
-                ApplyStatusDamage(effect);
-            }
-        }
+                effect.effect.OnExpire(
+                    this,
+                    effect);
 
-        foreach (var effect in effectsToRemove)
-        {
-            activeStatusEffects.Remove(effect);
-            Debug.Log($"[Effect] Efek {effect} hilang dari musuh");
-        }
-    }
-
-    private void ApplyStatusDamage(string effectName)
-    {
-        switch (effectName)
-        {
-            case "Poison":
-                break;
-            case "Burn":
-                break;
+                activeEffects.RemoveAt(i);
+            }
         }
     }
 

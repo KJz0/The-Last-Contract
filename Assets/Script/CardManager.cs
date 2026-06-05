@@ -34,38 +34,40 @@ public class CardManager : MonoBehaviour
     {
         ResetActionPoints();
 
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < 6; i++)
         {
             DrawNextCard();
         }
     }
 
-    public bool UseCardOnTarget(CardDisplay card, Enemy targetEnemy)
+    public bool UseCardOnTarget(
+    CardDisplay card,
+    Enemy targetEnemy)
     {
-        CardData cardData = card.CurrentCardData;
+        CardData cardData =
+            card.CurrentCardData;
 
-        if (!PlayerManager.Instance.CanAffordAndSpend(cardData.actionPointCost, cardData.manaCost))
+        if (!PlayerManager.Instance
+            .CanAffordAndSpend(
+                cardData.actionPointCost,
+                cardData.manaCost))
         {
-            Debug.LogWarning($"[Combat Info] Resource lu gak cukup buat mainin {cardData.cardName}!");
             return false;
         }
 
-        if (cardData.attackPower > 0)
+        foreach (CardEffect effect
+            in cardData.effects)
         {
-            targetEnemy.TakeDamage(cardData.attackPower);
+            if (effect == null)
+                continue;
+
+            effect.ExecuteEffect(
+                targetEnemy,
+                card);
         }
-
-        if (cardData.specialEffect != null)
-        {
-            cardData.specialEffect.ExecuteEffect(targetEnemy, card);
-        }
-
-        currentActionPoints -= cardData.actionPointCost;
-        UpdateAPUI();
-
-        Debug.Log($"[Combat Loop] Kartu {cardData.cardName} sukses digunakan. Sisa AP: {currentActionPoints}");
 
         DespawnCard(card);
+
         DrawNextCard();
 
         return true;
