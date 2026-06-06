@@ -14,6 +14,15 @@ public class Enemy : MonoBehaviour
     private readonly List<StatusEffectInstance>
     activeEffects =
         new List<StatusEffectInstance>();
+    [SerializeField]
+    private int attackDamage = 5;
+
+    public void PerformAttack()
+    {
+        PlayerManager.Instance
+            .TakeDamage(
+                attackDamage);
+    }
 
     private void Start()
     {
@@ -75,6 +84,11 @@ public class Enemy : MonoBehaviour
                 activeEffects.RemoveAt(i);
             }
         }
+    }
+
+    public void TickEffects()
+    {
+        TickStatusEffects();
     }
 
     private void UpdateHealthUI()

@@ -32,6 +32,12 @@ public class CardDisplay : MonoBehaviour
 
     public void Initialize(CardData data)
     {
+        if (data == null)
+        {
+            Debug.LogError("[CardDisplay] CardData is null!");
+            return;
+        }
+
         CurrentCardData = data;
 
         if (cardNameText != null) 

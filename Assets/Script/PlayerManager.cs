@@ -39,6 +39,7 @@ public class PlayerManager : MonoBehaviour
 
     private void Start()
     {
+        currentHealth = maxHealth;
         InitializeResources();
         SetupSliders();
         UpdateUIFields();

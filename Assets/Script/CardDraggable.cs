@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -19,7 +18,7 @@ public class CardDraggable : MonoBehaviour, IPointerDownHandler, IBeginDragHandl
     [SerializeField] private float tiltSensitivity = 0.6f;
     [SerializeField] private float tiltSmoothSpeed = 12f;
 
-    [Header("Tooltip Settings ")]
+    [Header("Tooltip Settings")]
     [SerializeField] private GameObject tooltipPanel; 
     [SerializeField] private float hoverScaleAmount = 1.15f;
     [SerializeField] private float hoverYOffset = 40f; 
@@ -132,6 +131,32 @@ public class CardDraggable : MonoBehaviour, IPointerDownHandler, IBeginDragHandl
     {
         CardData cardData = cardDisplay.CurrentCardData;
         string tooltipContent = cardData.description;
+
+        if (cardData.attackPower > 0)
+        {
+            tooltipContent += $"\n\nDMG: {cardData.attackPower}";
+        }
+
+        if (cardData.effects != null && cardData.effects.Count > 0)
+        {
+            tooltipContent += "\n\nEffects:";
+            foreach (CardEffect effect in cardData.effects)
+            {
+                if (effect is DamageEffect)
+                {
+                    tooltipContent += "\n• Damage";
+                }
+                else if (effect is PoisonEffect poison)
+                {
+                    tooltipContent += "\n• Poison";
+                }
+                else
+                {
+                    tooltipContent += $"\n• {effect.name}";
+                }
+            }
+        }
+
         tooltipText.text = tooltipContent;
     }
 
