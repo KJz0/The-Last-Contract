@@ -21,13 +21,31 @@ public class CardManager : MonoBehaviour
 
     private void Awake()
     {
+        Debug.Log("[CardManager] Awake START");
+
         if (Instance != null && Instance != this)
         {
+            Debug.Log("[CardManager] Instance exist, destroying duplicate");
             Destroy(gameObject);
             return;
         }
 
         Instance = this;
+
+        // Validate references
+        if (cardPrefab == null)
+        {
+            Debug.LogError("[CardManager] cardPrefab is NULL! Assign in inspector!");
+            return;
+        }
+
+        if (handLayoutGroup == null)
+        {
+            Debug.LogError("[CardManager] handLayoutGroup is NULL! Assign in inspector!");
+            return;
+        }
+
+        Debug.Log("[CardManager] Creating object pool");
 
         cardPool = new ObjectPool<CardDisplay>(
             CreateNewCardInstance,
@@ -38,12 +56,27 @@ public class CardManager : MonoBehaviour
             10,
             50
         );
+
+        Debug.Log("[CardManager] Awake COMPLETE");
     }
 
     private void Start()
     {
+        Debug.Log("[CardManager] Start BEGIN");
+
+        // Validate deck
+        if (deckList == null || deckList.Count == 0)
+        {
+            Debug.LogError("[CardManager] deckList is empty! Add CardData assets in inspector!");
+            return;
+        }
+
+        Debug.Log($"[CardManager] deckList has {deckList.Count} cards");
+
         BuildDeck();
         DrawStartingHand();
+
+        Debug.Log("[CardManager] Start COMPLETE");
     }
 
     public bool UseCardOnTarget(CardDisplay card, Enemy targetEnemy)
@@ -95,25 +128,24 @@ public class CardManager : MonoBehaviour
 
     public void DrawNextCard()
     {
+        // Check 1: Hand full?
         if (handCards.Count >= maxHandSize)
-        {
             return;
-        }
-
+        
+        // Check 2: DrawPile kosong? Reshuffle
         if (drawPile.Count == 0)
-        {
             ReshuffleDiscardPile();
-        }
-
+        
+        // Check 3: Masih kosong? STOP
         if (drawPile.Count == 0)
         {
-            Debug.LogWarning("[CardManager] No cards available in draw or discard pile!");
+            Debug.LogWarning("[CardManager] No cards available!");
             return;
         }
-
+        
+        // Draw card
         CardData card = drawPile[0];
         drawPile.RemoveAt(0);
-
         SpawnCardToHand(card);
     }
 
@@ -121,7 +153,7 @@ public class CardManager : MonoBehaviour
     {
         if (discardPile.Count == 0)
         {
-            Debug.LogWarning("[CardManager] Discard pile is empty, cannot reshuffle!");
+            Debug.LogWarning("[CardManager] Discard pile empty, cannot reshuffle!");
             return;
         }
 
@@ -129,18 +161,31 @@ public class CardManager : MonoBehaviour
         discardPile.Clear();
         ShuffleDrawPile();
 
-        Debug.Log("[CardManager] Discard pile reshuffled into draw pile");
+        Debug.Log("[CardManager] Discard pile reshuffled");
     }
 
     public void SpawnCardToHand(CardData dataToSpawn)
     {
         if (dataToSpawn == null)
         {
-            Debug.LogError("[CardManager] Trying to spawn null CardData!");
+            Debug.LogError("[CardManager] CardData to spawn is null!");
+            return;
+        }
+
+        if (cardPool == null)
+        {
+            Debug.LogError("[CardManager] Card pool not initialized!");
             return;
         }
 
         CardDisplay spawnedCard = cardPool.Get();
+
+        if (spawnedCard == null)
+        {
+            Debug.LogError("[CardManager] Failed to get card from pool!");
+            return;
+        }
+
         spawnedCard.transform.SetParent(handLayoutGroup, false);
         spawnedCard.Initialize(dataToSpawn);
 
@@ -162,6 +207,14 @@ public class CardManager : MonoBehaviour
 
     private void BuildDeck()
     {
+        Debug.Log("[CardManager] BuildDeck START");
+
+        if (deckList == null || deckList.Count == 0)
+        {
+            Debug.LogError("[CardManager] Cannot build deck - deckList empty!");
+            return;
+        }
+
         drawPile.Clear();
         discardPile.Clear();
         handCards.Clear();
@@ -173,7 +226,7 @@ public class CardManager : MonoBehaviour
 
         ShuffleDrawPile();
 
-        Debug.Log($"[CardManager] Deck built with {drawPile.Count} cards");
+        Debug.Log($"[CardManager] BuildDeck COMPLETE - {drawPile.Count} cards");
     }
 
     private void ShuffleDrawPile()
@@ -190,12 +243,14 @@ public class CardManager : MonoBehaviour
 
     private void DrawStartingHand()
     {
+        Debug.Log($"[CardManager] DrawStartingHand START - drawing {maxHandSize} cards");
+
         for (int i = 0; i < maxHandSize; i++)
         {
             DrawNextCard();
         }
 
-        Debug.Log($"[CardManager] Drew starting hand with {handCards.Count} cards");
+        Debug.Log($"[CardManager] DrawStartingHand COMPLETE - {handCards.Count} cards in hand");
     }
 
     private void DiscardCard(CardDisplay card)
@@ -223,10 +278,40 @@ public class CardManager : MonoBehaviour
             $"Hand: {handCards.Count}");
     }
 
-    private CardDisplay CreateNewCardInstance() => Instantiate(cardPrefab, handLayoutGroup);
-    private void OnTakeCardFromPool(CardDisplay card) => card.gameObject.SetActive(true);
-    private void OnReturnCardToPool(CardDisplay card) => card.gameObject.SetActive(false);
-    private void OnDestroyPoolObject(CardDisplay card) => Destroy(card.gameObject);
+    private CardDisplay CreateNewCardInstance()
+    {
+        if (cardPrefab == null)
+        {
+            Debug.LogError("[CardManager] Cannot create card instance - cardPrefab is null!");
+            return null;
+        }
+
+        if (handLayoutGroup == null)
+        {
+            Debug.LogError("[CardManager] Cannot create card instance - handLayoutGroup is null!");
+            return null;
+        }
+
+        return Instantiate(cardPrefab, handLayoutGroup);
+    }
+
+    private void OnTakeCardFromPool(CardDisplay card)
+    {
+        if (card != null)
+            card.gameObject.SetActive(true);
+    }
+
+    private void OnReturnCardToPool(CardDisplay card)
+    {
+        if (card != null)
+            card.gameObject.SetActive(false);
+    }
+
+    private void OnDestroyPoolObject(CardDisplay card)
+    {
+        if (card != null)
+            Destroy(card.gameObject);
+    }
 
     public int DrawPileCount => drawPile.Count;
     public int DiscardPileCount => discardPile.Count;
