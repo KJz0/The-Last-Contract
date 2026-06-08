@@ -1,344 +1,217 @@
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
-using UnityEngine.InputSystem;
 using UnityEngine.UI;
-using TMPro; 
 
-public class CardDraggable : MonoBehaviour, IPointerDownHandler, IBeginDragHandler, IDragHandler, IEndDragHandler, IPointerEnterHandler, IPointerExitHandler
+public class CardDraggable : MonoBehaviour, 
+    IPointerEnterHandler, IPointerExitHandler,
+    IPointerDownHandler, IDragHandler,
+    IEndDragHandler
 {
-    public static CardDraggable activeStickyCard;
+    [Header("References")]
+    [SerializeField] private GameObject tooltipPanel;
+    private CardDisplay cardDisplay;
+    private CanvasGroup canvasGroup;
 
-    [Header("Movement Tuning")]
+    [Header("Physics")]
     [SerializeField] private float moveSmoothSpeed = 15f;
     [SerializeField] private float snapBackSpeed = 12f;
-
-    [Header("Swing / Tilt Tuning")]
     [SerializeField] private float maxTiltAngle = 15f;
     [SerializeField] private float tiltSensitivity = 0.6f;
     [SerializeField] private float tiltSmoothSpeed = 12f;
-
-    [Header("Tooltip Settings")]
-    [SerializeField] private GameObject tooltipPanel; 
     [SerializeField] private float hoverScaleAmount = 1.15f;
-    [SerializeField] private float hoverYOffset = 40f; 
+    [SerializeField] private float hoverYOffset = 40f;
 
-    [HideInInspector] public Vector3 homePosition;
-    [HideInInspector] public Quaternion homeRotation = Quaternion.identity;
-
-    private RectTransform rectTransform;
-    private CanvasGroup canvasGroup;
-    private Canvas cardCanvas; 
-    private CardDisplay cardDisplay;
-    private TMP_Text tooltipText;
+    public Vector3 HomePosition { get; set; }
+    public Quaternion HomeRotation { get; set; }
+    
+    private Vector3 targetPosition;
+    private Quaternion targetRotation;
 
     private bool isDragging = false;
     private bool isHovered = false;
-    private bool isClicked = false; 
+    private bool isClicked = false;
+    private static CardDraggable activeStickyCard;
     private Vector3 dragOffset;
-    private Vector3 lastMousePosition;
-    private float currentTiltZ = 0f;
 
     private void Awake()
     {
-        InitializeComponents();
-        InitializeCanvasForCard();
-        InitializeTooltip();
-        StoreHomePosition();
-    }
-
-    private void Start()
-    {
-        UpdateCanvasSorting();
-    }
-
-    private void Update()
-    {
-        HandleTooltipStickyLogic(); 
-        HandleCardPhysics();
-    }
-
-    // --- INITIALIZATION ---
-
-    private void InitializeComponents()
-    {
-        rectTransform = GetComponent<RectTransform>();
-        canvasGroup = GetComponent<CanvasGroup>();
+        Debug.Log("[CardDraggable] Awake");
         cardDisplay = GetComponent<CardDisplay>();
-    }
+        canvasGroup = GetComponent<CanvasGroup>();
 
-    private void InitializeCanvasForCard()
-    {
-        cardCanvas = GetComponent<Canvas>();
-        if (cardCanvas == null)
+        if (canvasGroup == null)
         {
-            cardCanvas = gameObject.AddComponent<Canvas>();
-        }
-        cardCanvas.overrideSorting = true;
-        cardCanvas.sortingOrder = 0;
-
-        if (GetComponent<GraphicRaycaster>() == null)
-        {
-            gameObject.AddComponent<GraphicRaycaster>();
-        }
-    }
-
-    private void InitializeTooltip()
-    {
-        if (tooltipPanel != null) 
-        {
-            tooltipText = tooltipPanel.GetComponentInChildren<TMP_Text>();
-            tooltipPanel.SetActive(false); 
-        }
-    }
-
-    private void StoreHomePosition()
-    {
-        homePosition = rectTransform.localPosition;
-        homeRotation = rectTransform.localRotation;
-    }
-
-    // --- TOOLTIP & INTERACTION LOGIC ---
-
-    private void HandleTooltipStickyLogic()
-    {
-        if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame)
-        {
-            if (!isHovered && isClicked)
-            {
-                ReleaseStickyLock();
-                if (activeStickyCard == this) activeStickyCard = null;
-            }
+            canvasGroup = gameObject.AddComponent<CanvasGroup>();
         }
 
-        bool shouldShowTooltip = isHovered || isClicked || isDragging;
-        UpdateTooltipDisplay(shouldShowTooltip);
-    }
-
-    private void UpdateTooltipDisplay(bool shouldShow)
-    {
-        if (tooltipPanel == null || tooltipPanel.activeSelf == shouldShow) return;
-
-        if (shouldShow && tooltipText != null && cardDisplay != null && cardDisplay.CurrentCardData != null)
-        {
-            BuildTooltipText();
-        }
-
-        tooltipPanel.SetActive(shouldShow);
-    }
-
-    private void BuildTooltipText()
-    {
-        CardData cardData = cardDisplay.CurrentCardData;
-        string tooltipContent = cardData.description;
-
-        if (cardData.attackPower > 0)
-        {
-            tooltipContent += $"\n\nDMG: {cardData.attackPower}";
-        }
-
-        if (cardData.effects != null && cardData.effects.Count > 0)
-        {
-            tooltipContent += "\n\nEffects:";
-            foreach (CardEffect effect in cardData.effects)
-            {
-                if (effect is DamageEffect)
-                {
-                    tooltipContent += "\n• Damage";
-                }
-                else if (effect is PoisonEffect poison)
-                {
-                    tooltipContent += "\n• Poison";
-                }
-                else
-                {
-                    tooltipContent += $"\n• {effect.name}";
-                }
-            }
-        }
-
-        tooltipText.text = tooltipContent;
-    }
-
-    // --- CARD PHYSICS ---
-
-    private void HandleCardPhysics()
-    {
-        Vector3 currentMousePos = GetCurrentMousePosition();
-
-        if (isDragging)
-        {
-            UpdateDraggingPosition(currentMousePos);
-        }
-        else
-        {
-            UpdateRestingPosition();
-        }
-
-        UpdateCardScale();
-        lastMousePosition = currentMousePos;
-    }
-
-    private void UpdateDraggingPosition(Vector3 currentMousePos)
-    {
-        Vector3 targetPosition = currentMousePos + dragOffset;
-        rectTransform.position = Vector3.Lerp(rectTransform.position, targetPosition, Time.deltaTime * moveSmoothSpeed);
-
-        float mouseDeltaX = currentMousePos.x - lastMousePosition.x;
-        float targetTilt = -mouseDeltaX * tiltSensitivity;
-        targetTilt = Mathf.Clamp(targetTilt, -maxTiltAngle, maxTiltAngle);
-        currentTiltZ = Mathf.Lerp(currentTiltZ, targetTilt, Time.deltaTime * tiltSmoothSpeed);
-        
-        rectTransform.localRotation = Quaternion.Euler(0, 0, currentTiltZ);
-    }
-
-    private void UpdateRestingPosition()
-    {
-        ValidateHomeRotation();
-
-        Vector3 targetLocalPosition = homePosition;
-        if (isHovered || isClicked)
-        {
-            targetLocalPosition += new Vector3(0, hoverYOffset, 0);
-        }
-
-        rectTransform.localPosition = Vector3.Lerp(rectTransform.localPosition, targetLocalPosition, Time.deltaTime * snapBackSpeed);
-        rectTransform.localRotation = Quaternion.Lerp(rectTransform.localRotation, homeRotation, Time.deltaTime * snapBackSpeed);
-        
-        currentTiltZ = rectTransform.localRotation.eulerAngles.z;
-        if (currentTiltZ > 180) currentTiltZ -= 360f;
-    }
-
-    private void UpdateCardScale()
-    {
-        float targetScale = (isHovered || isClicked) && !isDragging ? hoverScaleAmount : 1f;
-        rectTransform.localScale = Vector3.Lerp(rectTransform.localScale, Vector3.one * targetScale, Time.deltaTime * 10f);
-    }
-
-    private void ValidateHomeRotation()
-    {
-        if (homeRotation.x == 0f && homeRotation.y == 0f && homeRotation.z == 0f && homeRotation.w == 0f)
-        {
-            homeRotation = Quaternion.identity; 
-        }
-    }
-
-    // --- CANVAS SORTING ---
-
-    public void UpdateCanvasSorting()
-    {
-        if (cardCanvas != null)
-        {
-            int baseSortingOrder = transform.GetSiblingIndex();
-            cardCanvas.sortingOrder = (isHovered || isDragging || isClicked) ? 100 : baseSortingOrder;
-        }
-    }
-
-    public void ReleaseStickyLock()
-    {
-        isClicked = false;
-        UpdateCanvasSorting();
-    }
-
-    // --- POINTER EVENTS ---
-
-    public void OnPointerDown(PointerEventData eventData)
-    {
-        isClicked = !isClicked;
-        HandleStickyCardLogic();
-        UpdateCanvasSorting();
-
-        Vector3 currentMousePos = GetCurrentMousePosition();
-        dragOffset = rectTransform.position - currentMousePos;
-        lastMousePosition = currentMousePos;
-    }
-
-    private void HandleStickyCardLogic()
-    {
-        if (isClicked)
-        {
-            if (activeStickyCard != null && activeStickyCard != this)
-            {
-                activeStickyCard.ReleaseStickyLock();
-            }
-            activeStickyCard = this; 
-        }
-        else
-        {
-            if (activeStickyCard == this)
-            {
-                activeStickyCard = null; 
-            }
-        }
-    }
-
-    public void OnBeginDrag(PointerEventData eventData)
-    {
-        isDragging = true;
-        UpdateCanvasSorting(); 
-        if (canvasGroup != null) canvasGroup.blocksRaycasts = false;
-    }
-
-    public void OnDrag(PointerEventData eventData) { }
-
-    public void OnEndDrag(PointerEventData eventData)
-    {
-        isDragging = false; 
-        UpdateCanvasSorting(); 
-        if (canvasGroup != null) canvasGroup.blocksRaycasts = true;
-
-        TryUseCardOnTarget(eventData);
-    }
-
-    private void TryUseCardOnTarget(PointerEventData eventData)
-    {
-        if (eventData.pointerCurrentRaycast.gameObject != null)
-        {
-            GameObject hitObject = eventData.pointerCurrentRaycast.gameObject;
-            Enemy enemyTarget = hitObject.GetComponentInParent<Enemy>();
-
-            if (enemyTarget != null)
-            {
-                CardDisplay thisCardDisplay = GetComponent<CardDisplay>();
-                bool isSuccess = CardManager.Instance.UseCardOnTarget(thisCardDisplay, enemyTarget);
-                if (isSuccess) return;
-            }
-        }
+        HomePosition = transform.localPosition;
+        HomeRotation = transform.localRotation;
+        targetPosition = HomePosition;
+        targetRotation = HomeRotation;
     }
 
     public void OnPointerEnter(PointerEventData eventData)
     {
         isHovered = true;
-
-        if (activeStickyCard != null && activeStickyCard != this)
-        {
-            activeStickyCard.ReleaseStickyLock();
-            activeStickyCard = null; 
-        }
-
         UpdateCanvasSorting();
     }
 
     public void OnPointerExit(PointerEventData eventData)
     {
         isHovered = false;
-        UpdateCanvasSorting(); 
     }
 
-    // --- UTILITY ---
-
-    private Vector3 GetCurrentMousePosition()
+    public void OnPointerDown(PointerEventData eventData)
     {
-        if (Mouse.current != null) return Mouse.current.position.ReadValue();
-        if (Pointer.current != null) return Pointer.current.position.ReadValue();
-        return Vector3.zero;
+        isClicked = !isClicked;
+
+        if (isClicked)
+        {
+            activeStickyCard = this;
+        }
+
+        RectTransformUtility.ScreenPointToLocalPointInRectangle(
+            GetComponent<RectTransform>(),
+            eventData.position,
+            eventData.pressEventCamera,
+            out Vector2 localPoint);
+
+        dragOffset = (Vector3)localPoint;
+        UpdateCanvasSorting();
     }
 
-    private void OnDisable()
+    public void OnDrag(PointerEventData eventData)
+    {
+        isDragging = true;
+    }
+
+    public void OnEndDrag(PointerEventData eventData)
+    {
+        Debug.Log("[CardDraggable] OnEndDrag");
+        isDragging = false;
+        UpdateCanvasSorting();
+
+        // 2D RAYCAST - Convert mouse position to world
+        Vector3 mouseWorldPos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+        Vector2 rayOrigin = new Vector2(mouseWorldPos.x, mouseWorldPos.y);
+        
+        Debug.Log($"[CardDraggable] Raycast from: {rayOrigin}");
+
+        // Raycast 2D - small distance forward
+        RaycastHit2D hit = Physics2D.Raycast(rayOrigin, Vector2.zero, 0.1f);
+
+        if (hit.collider != null)
+        {
+            Debug.Log($"[CardDraggable] Raycast hit: {hit.collider.gameObject.name}");
+            
+            if (hit.collider.TryGetComponent<Enemy>(out Enemy enemy))
+            {
+                Debug.Log($"[CardDraggable] Found enemy: {enemy.name}, using card");
+                
+                if (CardManager.Instance != null && cardDisplay != null)
+                {
+                    bool success = CardManager.Instance.UseCardOnTarget(cardDisplay, enemy);
+                    Debug.Log($"[CardDraggable] UseCardOnTarget result: {success}");
+
+                    if (!success)
+                    {
+                        SnapCardBack();
+                    }
+                }
+                else
+                {
+                    Debug.LogError("[CardDraggable] CardManager or CardDisplay null!");
+                    SnapCardBack();
+                }
+            }
+            else
+            {
+                Debug.Log("[CardDraggable] Hit object is not an Enemy");
+                SnapCardBack();
+            }
+        }
+        else
+        {
+            Debug.Log("[CardDraggable] Raycast hit nothing");
+            SnapCardBack();
+        }
+    }
+
+    private void Update()
+    {
+        HandleCardPhysics();
+    }
+
+    private void HandleCardPhysics()
+    {
+        if (isDragging)
+        {
+            Vector3 mousePos = Input.mousePosition;
+            Vector3 worldMousePos = Camera.main.ScreenToWorldPoint(mousePos);
+            worldMousePos.z = 0;
+
+            targetPosition = worldMousePos + dragOffset;
+
+            Vector3 directionToMouse = (worldMousePos - transform.position).normalized;
+            float tiltZ = -directionToMouse.x * maxTiltAngle;
+            targetRotation = Quaternion.Euler(0, 0, tiltZ);
+
+            transform.localScale = Vector3.Lerp(
+                transform.localScale,
+                Vector3.one * hoverScaleAmount,
+                Time.deltaTime * tiltSmoothSpeed);
+        }
+        else if (isHovered && !isDragging)
+        {
+            targetPosition = HomePosition + Vector3.up * hoverYOffset;
+            targetRotation = Quaternion.identity;
+            transform.localScale = Vector3.Lerp(
+                transform.localScale,
+                Vector3.one * hoverScaleAmount,
+                Time.deltaTime * tiltSmoothSpeed);
+        }
+        else
+        {
+            targetPosition = HomePosition;
+            targetRotation = HomeRotation;
+            transform.localScale = Vector3.Lerp(
+                transform.localScale,
+                Vector3.one,
+                Time.deltaTime * tiltSmoothSpeed);
+        }
+
+        transform.localPosition = Vector3.Lerp(
+            transform.localPosition,
+            targetPosition,
+            Time.deltaTime * moveSmoothSpeed);
+
+        transform.localRotation = Quaternion.Lerp(
+            transform.localRotation,
+            targetRotation,
+            Time.deltaTime * snapBackSpeed);
+    }
+
+    private void SnapCardBack()
+    {
+        isDragging = false;
+        targetPosition = HomePosition;
+        targetRotation = HomeRotation;
+    }
+
+    public void UpdateCanvasSorting()
+    {
+        if (canvasGroup != null)
+        {
+            canvasGroup.alpha = isDragging ? 0.8f : 1f;
+        }
+    }
+
+    public void ReleaseStickyLock()
     {
         if (activeStickyCard == this)
         {
             activeStickyCard = null;
+            isClicked = false;
         }
     }
 }
