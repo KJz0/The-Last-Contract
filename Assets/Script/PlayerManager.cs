@@ -2,15 +2,19 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 
+/// <summary>
+/// Mengelola stats player: HP, AP, Mana.
+/// Ghost health bar di-lerp secara visual untuk efek "juicy".
+/// </summary>
 public class PlayerManager : MonoBehaviour
 {
     public static PlayerManager Instance { get; private set; }
 
     [Header("Player Vitals")]
     [SerializeField] private int maxHealth = 100;
-    [SerializeField] private int maxAP = 8;
-    [SerializeField] private int maxMana = 8;
-    
+    [SerializeField] private int maxAP     = 8;
+    [SerializeField] private int maxMana   = 8;
+
     private int currentHealth;
     private int currentAP;
     private int currentMana;
@@ -20,16 +24,20 @@ public class PlayerManager : MonoBehaviour
     [SerializeField] private Slider ghostHpSlider;
 
     [Header("Resource Sliders")]
-    [SerializeField] private Slider apSlider;   
+    [SerializeField] private Slider apSlider;
     [SerializeField] private Slider manaSlider;
 
     [Header("Resource Text")]
     [SerializeField] private TMP_Text hpText;
-    [SerializeField] private TMP_Text apText;   
+    [SerializeField] private TMP_Text apText;
     [SerializeField] private TMP_Text manaText;
 
     [Header("Juicy Tuning")]
     [SerializeField] private float ghostLerpSpeed = 3f;
+
+    // ---------------------------------------------------------------
+    // LIFECYCLE
+    // ---------------------------------------------------------------
 
     private void Awake()
     {
@@ -39,7 +47,6 @@ public class PlayerManager : MonoBehaviour
 
     private void Start()
     {
-        currentHealth = maxHealth;
         InitializeResources();
         SetupSliders();
         UpdateUIFields();
@@ -50,75 +57,93 @@ public class PlayerManager : MonoBehaviour
         UpdateGhostHealthBar();
     }
 
-    // --- INITIALIZATION ---
+    // ---------------------------------------------------------------
+    // INITIALIZATION
+    // ---------------------------------------------------------------
 
     private void InitializeResources()
     {
         currentHealth = maxHealth;
-        currentAP = maxAP;
-        currentMana = maxMana;
+        currentAP     = maxAP;
+        currentMana   = maxMana;
     }
 
     private void SetupSliders()
     {
-        if (mainHpSlider != null) 
-        { 
-            mainHpSlider.maxValue = maxHealth; 
-            mainHpSlider.value = currentHealth; 
+        if (mainHpSlider != null)
+        {
+            mainHpSlider.maxValue = maxHealth;
+            mainHpSlider.value    = currentHealth;
         }
 
-        if (ghostHpSlider != null) 
-        { 
-            ghostHpSlider.maxValue = maxHealth; 
-            ghostHpSlider.value = currentHealth; 
+        if (ghostHpSlider != null)
+        {
+            ghostHpSlider.maxValue = maxHealth;
+            ghostHpSlider.value    = currentHealth;
         }
 
-        if (apSlider != null) 
-        { 
-            apSlider.maxValue = maxAP; 
-            apSlider.value = currentAP; 
+        if (apSlider != null)
+        {
+            apSlider.maxValue = maxAP;
+            apSlider.value    = currentAP;
         }
 
-        if (manaSlider != null) 
-        { 
-            manaSlider.maxValue = maxMana; 
-            manaSlider.value = currentMana; 
+        if (manaSlider != null)
+        {
+            manaSlider.maxValue = maxMana;
+            manaSlider.value    = currentMana;
         }
     }
 
-    // --- HEALTH MANAGEMENT ---
+    // ---------------------------------------------------------------
+    // HEALTH
+    // ---------------------------------------------------------------
 
     public void TakeDamage(int damageAmount)
     {
         currentHealth -= damageAmount;
-        currentHealth = Mathf.Clamp(currentHealth, 0, maxHealth);
-        
-        if (mainHpSlider != null) 
-        {
+        currentHealth  = Mathf.Clamp(currentHealth, 0, maxHealth);
+
+        if (mainHpSlider != null)
             mainHpSlider.value = currentHealth;
-        }
 
         UpdateUIFields();
+
+        if (currentHealth <= 0)
+            OnPlayerDied();
     }
 
     private void UpdateGhostHealthBar()
     {
         if (ghostHpSlider == null || mainHpSlider == null) return;
 
-        if (ghostHpSlider.value != mainHpSlider.value)
+        if (!Mathf.Approximately(ghostHpSlider.value, mainHpSlider.value))
         {
-            ghostHpSlider.value = Mathf.Lerp(ghostHpSlider.value, mainHpSlider.value, Time.deltaTime * ghostLerpSpeed);
+            ghostHpSlider.value = Mathf.Lerp(
+                ghostHpSlider.value,
+                mainHpSlider.value,
+                Time.deltaTime * ghostLerpSpeed);
         }
     }
 
-    // --- RESOURCE MANAGEMENT ---
+    private void OnPlayerDied()
+    {
+        Debug.Log("[PlayerManager] Player mati! Game over.");
+        // TODO: trigger game over screen
+    }
 
+    // ---------------------------------------------------------------
+    // RESOURCES
+    // ---------------------------------------------------------------
+
+    /// <summary>
+    /// Cek apakah player mampu membayar cost, lalu langsung kurangi.
+    /// Return false jika tidak cukup (tidak ada resource yang dikurangi).
+    /// </summary>
     public bool CanAffordAndSpend(int apCost, int manaCost)
     {
         if (!CanAfford(apCost, manaCost))
-        {
             return false;
-        }
 
         SpendResources(apCost, manaCost);
         return true;
@@ -131,32 +156,45 @@ public class PlayerManager : MonoBehaviour
 
     private void SpendResources(int apCost, int manaCost)
     {
-        currentAP -= apCost;
+        currentAP   -= apCost;
         currentMana -= manaCost;
 
-        if (apSlider != null) apSlider.value = currentAP;
-        if (manaSlider != null) manaSlider.value = currentMana;
+        if (apSlider   != null) apSlider.value   = currentAP;
+        if (manaSlider != null) manaSlider.value  = currentMana;
 
         UpdateUIFields();
     }
 
+    /// <summary>
+    /// Reset AP dan Mana ke maksimum. Dipanggil oleh TurnManager setiap awal giliran.
+    /// </summary>
     public void ResetTurnResources()
     {
-        currentAP = maxAP;
+        currentAP   = maxAP;
         currentMana = maxMana;
 
-        if (apSlider != null) apSlider.value = currentAP;
-        if (manaSlider != null) manaSlider.value = currentMana;
+        if (apSlider   != null) apSlider.value   = currentAP;
+        if (manaSlider != null) manaSlider.value  = currentMana;
 
         UpdateUIFields();
     }
 
-    // --- UI UPDATES ---
+    // ---------------------------------------------------------------
+    // UI
+    // ---------------------------------------------------------------
 
     private void UpdateUIFields()
     {
-        if (hpText != null) hpText.text = $"{currentHealth} / {maxHealth}";
-        if (apText != null) apText.text = $"AP: {currentAP} / {maxAP}";
+        if (hpText   != null) hpText.text   = $"{currentHealth} / {maxHealth}";
+        if (apText   != null) apText.text   = $"AP: {currentAP} / {maxAP}";
         if (manaText != null) manaText.text = $"MANA: {currentMana} / {maxMana}";
     }
+
+    // ---------------------------------------------------------------
+    // READ-ONLY PROPERTIES
+    // ---------------------------------------------------------------
+
+    public int CurrentHealth => currentHealth;
+    public int CurrentAP     => currentAP;
+    public int CurrentMana   => currentMana;
 }

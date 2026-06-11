@@ -822,6 +822,7 @@ GameObject:
   - component: {fileID: 4265553588792269596}
   - component: {fileID: 1149737373249932380}
   - component: {fileID: 920330663637336739}
+  - component: {fileID: 8965619407021692859}
   m_Layer: 5
   m_Name: CardBackground
   m_TagString: Untagged
@@ -906,9 +907,7 @@ MonoBehaviour:
   moveSmoothSpeed: 15
   snapBackSpeed: 12
   maxTiltAngle: 15
-  tiltSensitivity: 0.6
   tiltSmoothSpeed: 12
-  tooltipPanel: {fileID: 587178067368134314}
   hoverScaleAmount: 1.15
   hoverYOffset: 150
   homePosition: {x: 0, y: 0, z: 0}
@@ -930,6 +929,19 @@ MonoBehaviour:
   cardArtImage: {fileID: 3053170251763190983}
   apCostText: {fileID: 5636647811991400847}
   manaCostText: {fileID: 8986650740882642911}
+  descriptionText: {fileID: 8088378350816182403}
+--- !u!225 &8965619407021692859
+CanvasGroup:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7285371959567295600}
+  m_Enabled: 1
+  m_Alpha: 1
+  m_Interactable: 1
+  m_BlocksRaycasts: 1
+  m_IgnoreParentGroups: 0
 --- !u!1 &7531046434121356162
 GameObject:
   m_ObjectHideFlags: 0

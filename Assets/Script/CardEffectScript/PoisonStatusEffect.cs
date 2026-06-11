@@ -1,33 +1,41 @@
 using UnityEngine;
 
+/// <summary>
+/// Poison: deals damage per turn.
+/// Stack behavior: jika Poison sudah aktif, value dijumlahkan,
+/// duration diambil yang lebih panjang (tidak menumpuk durasi).
+/// </summary>
 [CreateAssetMenu(
     fileName = "PoisonStatus",
-    menuName = "Status Effects/Poison")]
+    menuName  = "CardGame/Status Effects/Poison")]
 public class PoisonStatusEffect : StatusEffect
 {
-    public override void OnApply(
-        Enemy target,
-        StatusEffectInstance instance)
+    public override void OnApply(Enemy target, StatusEffectInstance instance)
     {
-        Debug.Log(
-            $"{target.name} terkena Poison");
+        Debug.Log($"[Status] {target.name} terkena Poison {instance.value} selama {instance.duration} turn");
     }
 
-    public override void OnTick(
-        Enemy target,
-        StatusEffectInstance instance)
+    public override void OnTick(Enemy target, StatusEffectInstance instance)
     {
         target.TakeDamage(instance.value);
-
-        Debug.Log(
-            $"{target.name} menerima {instance.value} poison damage");
+        Debug.Log($"[Status] {target.name} menerima {instance.value} poison damage ({instance.duration - 1} turn tersisa)");
     }
 
-    public override void OnExpire(
-        Enemy target,
-        StatusEffectInstance instance)
+    public override void OnExpire(Enemy target, StatusEffectInstance instance)
     {
-        Debug.Log(
-            $"{target.name} poison berakhir");
+        Debug.Log($"[Status] {target.name}: Poison habis");
+    }
+
+    /// <summary>
+    /// Poison stack: jumlahkan value, perpanjang durasi jika lebih lama.
+    /// </summary>
+    public override bool TryStack(
+        StatusEffectInstance existing,
+        int newDuration,
+        int newValue)
+    {
+        existing.value    += newValue;
+        existing.duration  = Mathf.Max(existing.duration, newDuration);
+        return true;
     }
 }

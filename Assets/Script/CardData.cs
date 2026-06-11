@@ -9,15 +9,19 @@ public enum CardType
     Buff
 }
 
+/// <summary>
+/// Data kartu. Buat satu asset per kartu di Project window.
+/// </summary>
 [CreateAssetMenu(
     fileName = "NewCardData",
-    menuName = "CardGame/Card Data")]
+    menuName  = "CardGame/Card Data")]
 public class CardData : ScriptableObject
 {
     [Header("Identity")]
-    public string cardID;
-    public string cardName;
+    public string   cardID;
+    public string   cardName;
     public CardType cardType;
+
     [TextArea]
     public string description;
 

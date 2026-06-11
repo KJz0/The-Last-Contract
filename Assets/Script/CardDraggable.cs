@@ -1,59 +1,63 @@
 using UnityEngine;
 using UnityEngine.EventSystems;
-using UnityEngine.UI;
+using System.Collections.Generic;
 
-public class CardDraggable : MonoBehaviour, 
+public class CardDraggable : MonoBehaviour,
     IPointerEnterHandler, IPointerExitHandler,
     IPointerDownHandler, IDragHandler,
     IEndDragHandler
 {
-    [Header("References")]
-    [SerializeField] private GameObject tooltipPanel;
-    private CardDisplay cardDisplay;
-    private CanvasGroup canvasGroup;
+    private CardDisplay   cardDisplay;
+    private CanvasGroup   canvasGroup;
+    private RectTransform rectTransform;
 
     [Header("Physics")]
-    [SerializeField] private float moveSmoothSpeed = 15f;
-    [SerializeField] private float snapBackSpeed = 12f;
-    [SerializeField] private float maxTiltAngle = 15f;
-    [SerializeField] private float tiltSensitivity = 0.6f;
-    [SerializeField] private float tiltSmoothSpeed = 12f;
+    [SerializeField] private float moveSmoothSpeed  = 15f;
+    [SerializeField] private float snapBackSpeed    = 12f;
+    [SerializeField] private float maxTiltAngle     = 15f;
+    [SerializeField] private float tiltSmoothSpeed  = 12f;
     [SerializeField] private float hoverScaleAmount = 1.15f;
-    [SerializeField] private float hoverYOffset = 40f;
+    [SerializeField] private float hoverYOffset     = 40f;
 
-    public Vector3 HomePosition { get; set; }
-    public Quaternion HomeRotation { get; set; }
-    
-    private Vector3 targetPosition;
+    public Vector3    homePosition;
+    public Quaternion homeRotation;
+
+    private Vector3    targetPosition;
     private Quaternion targetRotation;
 
-    private bool isDragging = false;
-    private bool isHovered = false;
-    private bool isClicked = false;
-    private static CardDraggable activeStickyCard;
-    private Vector3 dragOffset;
+    private bool    isDragging = false;
+    private bool    isHovered  = false;
+    private Vector2 dragLocalPos;
+    private bool    hasDragPos = false;
+
+    private static readonly List<RaycastResult> raycastResults = new List<RaycastResult>();
 
     private void Awake()
     {
-        Debug.Log("[CardDraggable] Awake");
-        cardDisplay = GetComponent<CardDisplay>();
-        canvasGroup = GetComponent<CanvasGroup>();
+        cardDisplay   = GetComponent<CardDisplay>();
+        canvasGroup   = GetComponent<CanvasGroup>() ?? gameObject.AddComponent<CanvasGroup>();
+        rectTransform = GetComponent<RectTransform>();
 
-        if (canvasGroup == null)
-        {
-            canvasGroup = gameObject.AddComponent<CanvasGroup>();
-        }
+        homePosition   = transform.localPosition;
+        homeRotation   = transform.localRotation;
+        targetPosition = homePosition;
+        targetRotation = homeRotation;
 
-        HomePosition = transform.localPosition;
-        HomeRotation = transform.localRotation;
-        targetPosition = HomePosition;
-        targetRotation = HomeRotation;
+        // Pastikan semua child tidak mencuri raycas
     }
+
+    /// <summary>
+    /// Matikan Raycast Target di semua child Graphic agar tidak mencuri pointer event.
+    /// Root object (CardBackground) tetap menerima input.
+    /// </summary>
+
+    // ---------------------------------------------------------------
+    // POINTER EVENTS
+    // ---------------------------------------------------------------
 
     public void OnPointerEnter(PointerEventData eventData)
     {
         isHovered = true;
-        UpdateCanvasSorting();
     }
 
     public void OnPointerExit(PointerEventData eventData)
@@ -63,79 +67,46 @@ public class CardDraggable : MonoBehaviour,
 
     public void OnPointerDown(PointerEventData eventData)
     {
-        isClicked = !isClicked;
-
-        if (isClicked)
-        {
-            activeStickyCard = this;
-        }
-
-        RectTransformUtility.ScreenPointToLocalPointInRectangle(
-            GetComponent<RectTransform>(),
-            eventData.position,
-            eventData.pressEventCamera,
-            out Vector2 localPoint);
-
-        dragOffset = (Vector3)localPoint;
-        UpdateCanvasSorting();
+        // kosong — drag dimulai dari OnDrag
     }
 
     public void OnDrag(PointerEventData eventData)
     {
         isDragging = true;
+
+        if (rectTransform != null && rectTransform.parent != null)
+        {
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                rectTransform.parent as RectTransform,
+                eventData.position,
+                eventData.pressEventCamera,
+                out dragLocalPos);
+
+            hasDragPos = true;
+        }
     }
 
     public void OnEndDrag(PointerEventData eventData)
     {
-        Debug.Log("[CardDraggable] OnEndDrag");
         isDragging = false;
-        UpdateCanvasSorting();
+        hasDragPos = false;
 
-        // 2D RAYCAST - Convert mouse position to world
-        Vector3 mouseWorldPos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
-        Vector2 rayOrigin = new Vector2(mouseWorldPos.x, mouseWorldPos.y);
-        
-        Debug.Log($"[CardDraggable] Raycast from: {rayOrigin}");
+        Enemy target = FindEnemyUnderPointer(eventData);
 
-        // Raycast 2D - small distance forward
-        RaycastHit2D hit = Physics2D.Raycast(rayOrigin, Vector2.zero, 0.1f);
-
-        if (hit.collider != null)
+        if (target != null)
         {
-            Debug.Log($"[CardDraggable] Raycast hit: {hit.collider.gameObject.name}");
-            
-            if (hit.collider.TryGetComponent<Enemy>(out Enemy enemy))
-            {
-                Debug.Log($"[CardDraggable] Found enemy: {enemy.name}, using card");
-                
-                if (CardManager.Instance != null && cardDisplay != null)
-                {
-                    bool success = CardManager.Instance.UseCardOnTarget(cardDisplay, enemy);
-                    Debug.Log($"[CardDraggable] UseCardOnTarget result: {success}");
-
-                    if (!success)
-                    {
-                        SnapCardBack();
-                    }
-                }
-                else
-                {
-                    Debug.LogError("[CardDraggable] CardManager or CardDisplay null!");
-                    SnapCardBack();
-                }
-            }
-            else
-            {
-                Debug.Log("[CardDraggable] Hit object is not an Enemy");
-                SnapCardBack();
-            }
+            Debug.Log($"[CardDraggable] Drop ke enemy: {target.name}");
+            CardManager.Instance?.UseCardOnTarget(cardDisplay, target);
         }
         else
         {
-            Debug.Log("[CardDraggable] Raycast hit nothing");
-            SnapCardBack();
+            Debug.Log("[CardDraggable] Tidak kena enemy");
         }
     }
+
+    // ---------------------------------------------------------------
+    // UPDATE
+    // ---------------------------------------------------------------
 
     private void Update()
     {
@@ -144,17 +115,13 @@ public class CardDraggable : MonoBehaviour,
 
     private void HandleCardPhysics()
     {
-        if (isDragging)
+        if (isDragging && hasDragPos)
         {
-            Vector3 mousePos = Input.mousePosition;
-            Vector3 worldMousePos = Camera.main.ScreenToWorldPoint(mousePos);
-            worldMousePos.z = 0;
+            targetPosition = new Vector3(dragLocalPos.x, dragLocalPos.y, 0f);
 
-            targetPosition = worldMousePos + dragOffset;
-
-            Vector3 directionToMouse = (worldMousePos - transform.position).normalized;
-            float tiltZ = -directionToMouse.x * maxTiltAngle;
-            targetRotation = Quaternion.Euler(0, 0, tiltZ);
+            float normalized = Mathf.Clamp(
+                (dragLocalPos.x - homePosition.x) / 200f, -1f, 1f);
+            targetRotation = Quaternion.Euler(0, 0, -normalized * maxTiltAngle);
 
             transform.localScale = Vector3.Lerp(
                 transform.localScale,
@@ -163,8 +130,9 @@ public class CardDraggable : MonoBehaviour,
         }
         else if (isHovered && !isDragging)
         {
-            targetPosition = HomePosition + Vector3.up * hoverYOffset;
+            targetPosition = homePosition + Vector3.up * hoverYOffset;
             targetRotation = Quaternion.identity;
+
             transform.localScale = Vector3.Lerp(
                 transform.localScale,
                 Vector3.one * hoverScaleAmount,
@@ -172,8 +140,9 @@ public class CardDraggable : MonoBehaviour,
         }
         else
         {
-            targetPosition = HomePosition;
-            targetRotation = HomeRotation;
+            targetPosition = homePosition;
+            targetRotation = homeRotation;
+
             transform.localScale = Vector3.Lerp(
                 transform.localScale,
                 Vector3.one,
@@ -191,27 +160,39 @@ public class CardDraggable : MonoBehaviour,
             Time.deltaTime * snapBackSpeed);
     }
 
-    private void SnapCardBack()
-    {
-        isDragging = false;
-        targetPosition = HomePosition;
-        targetRotation = HomeRotation;
-    }
-
-    public void UpdateCanvasSorting()
-    {
-        if (canvasGroup != null)
-        {
-            canvasGroup.alpha = isDragging ? 0.8f : 1f;
-        }
-    }
+    // ---------------------------------------------------------------
+    // PUBLIC API
+    // ---------------------------------------------------------------
 
     public void ReleaseStickyLock()
     {
-        if (activeStickyCard == this)
+        isHovered  = false;
+        isDragging = false;
+        hasDragPos = false;
+    }
+
+    // ---------------------------------------------------------------
+    // HELPERS
+    // ---------------------------------------------------------------
+
+    private Enemy FindEnemyUnderPointer(PointerEventData eventData)
+    {
+        raycastResults.Clear();
+        EventSystem.current.RaycastAll(eventData, raycastResults);
+
+        foreach (RaycastResult result in raycastResults)
         {
-            activeStickyCard = null;
-            isClicked = false;
+            if (result.gameObject == gameObject) continue;
+            if (result.gameObject.transform.IsChildOf(transform)) continue;
+
+            if (result.gameObject.TryGetComponent<Enemy>(out Enemy enemy))
+                return enemy;
+
+            Enemy enemyInParent = result.gameObject.GetComponentInParent<Enemy>();
+            if (enemyInParent != null)
+                return enemyInParent;
         }
+
+        return null;
     }
 }
