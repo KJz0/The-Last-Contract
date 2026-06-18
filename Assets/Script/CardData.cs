@@ -9,9 +9,6 @@ public enum CardType
     Buff
 }
 
-/// <summary>
-/// Data kartu. Buat satu asset per kartu di Project window.
-/// </summary>
 [CreateAssetMenu(
     fileName = "NewCardData",
     menuName  = "CardGame/Card Data")]
@@ -29,8 +26,9 @@ public class CardData : ScriptableObject
     public int actionPointCost;
     public int manaCost;
 
-    [Header("Quick Reference (for UI display)")]
-    public int attackPower;
+    [Header("Damage")]
+    [Tooltip("Damage langsung ke enemy sebelum effects dijalankan. 0 = tidak ada base damage.")]
+    public int baseDamage;
 
     [Header("Effects")]
     public List<CardEffect> effects = new();

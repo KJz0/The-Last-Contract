@@ -42,15 +42,7 @@ public class CardDraggable : MonoBehaviour,
         homeRotation   = transform.localRotation;
         targetPosition = homePosition;
         targetRotation = homeRotation;
-
-        // Pastikan semua child tidak mencuri raycas
     }
-
-    /// <summary>
-    /// Matikan Raycast Target di semua child Graphic agar tidak mencuri pointer event.
-    /// Root object (CardBackground) tetap menerima input.
-    /// </summary>
-
     // ---------------------------------------------------------------
     // POINTER EVENTS
     // ---------------------------------------------------------------
@@ -67,7 +59,6 @@ public class CardDraggable : MonoBehaviour,
 
     public void OnPointerDown(PointerEventData eventData)
     {
-        // kosong — drag dimulai dari OnDrag
     }
 
     public void OnDrag(PointerEventData eventData)
@@ -91,17 +82,18 @@ public class CardDraggable : MonoBehaviour,
         isDragging = false;
         hasDragPos = false;
 
+        // DEBUG
+        raycastResults.Clear();
+        EventSystem.current.RaycastAll(eventData, raycastResults);
+        Debug.Log($"[Drop] Total hit: {raycastResults.Count}");
+        foreach (var r in raycastResults)
+            Debug.Log($"  → {r.gameObject.name} | hasEnemy: {r.gameObject.GetComponent<Enemy>() != null} | parentEnemy: {r.gameObject.GetComponentInParent<Enemy>() != null}");
+
         Enemy target = FindEnemyUnderPointer(eventData);
+        Debug.Log($"[Drop] Target found: {(target != null ? target.name : "NULL")}");
 
         if (target != null)
-        {
-            Debug.Log($"[CardDraggable] Drop ke enemy: {target.name}");
             CardManager.Instance?.UseCardOnTarget(cardDisplay, target);
-        }
-        else
-        {
-            Debug.Log("[CardDraggable] Tidak kena enemy");
-        }
     }
 
     // ---------------------------------------------------------------

@@ -1,15 +1,8 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Pool;
 
-/// <summary>
-/// Mengelola deck, draw pile, discard pile, dan tangan pemain.
-/// Menggunakan Unity ObjectPool untuk kartu agar efisien.
-/// 
-/// BUG FIX: Dihapus panggilan draggable.UpdateCanvasSorting() yang
-/// tidak ada di CardDraggable. RefillHand sekarang dipanggil oleh
-/// TurnManager.StartPlayerTurn (bukan dikomentari).
-/// </summary>
 public class CardManager : MonoBehaviour
 {
     public static CardManager Instance { get; private set; }
@@ -17,9 +10,19 @@ public class CardManager : MonoBehaviour
     [Header("Pool & Deck Settings")]
     [SerializeField] private CardDisplay    cardPrefab;
     [SerializeField] private Transform      handLayoutGroup;
-    [SerializeField] private List<CardData> deckList = new List<CardData>();
+    [SerializeField] private List<CardData> deckList = new();
 
     [SerializeField] private int maxHandSize = 6;
+
+    [Header("Card Used Animation")]
+    [Tooltip("Durasi animasi kartu menghilang saat dipakai ke target")]
+    [SerializeField] private float useCardAnimDuration = 0.2f;
+
+    [Header("Hand Refresh Animation (awal turn baru)")]
+    [SerializeField] private float discardAnimDuration = 0.25f;
+    [SerializeField] private float discardStagger      = 0.05f;
+    [SerializeField] private float spawnAnimDuration   = 0.3f;
+    [SerializeField] private float spawnStagger        = 0.08f;
 
     private readonly List<CardData>    masterDeck  = new();
     private IObjectPool<CardDisplay>   cardPool;
@@ -27,31 +30,18 @@ public class CardManager : MonoBehaviour
     private readonly List<CardData>    discardPile = new();
     private readonly List<CardDisplay> handCards   = new();
 
-    // ---------------------------------------------------------------
-    // LIFECYCLE
-    // ---------------------------------------------------------------
+    private HandManager handManager;
+    private bool isRefreshingHand = false;
 
     private void Awake()
     {
-        if (Instance != null && Instance != this)
-        {
-            Destroy(gameObject);
-            return;
-        }
-
+        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
 
-        if (cardPrefab == null)
-        {
-            Debug.LogError("[CardManager] cardPrefab belum di-assign!");
-            return;
-        }
+        if (cardPrefab == null)      { Debug.LogError("[CardManager] cardPrefab belum di-assign!"); return; }
+        if (handLayoutGroup == null) { Debug.LogError("[CardManager] handLayoutGroup belum di-assign!"); return; }
 
-        if (handLayoutGroup == null)
-        {
-            Debug.LogError("[CardManager] handLayoutGroup belum di-assign!");
-            return;
-        }
+        handManager = handLayoutGroup.GetComponent<HandManager>();
 
         cardPool = new ObjectPool<CardDisplay>(
             CreateNewCardInstance,
@@ -60,15 +50,14 @@ public class CardManager : MonoBehaviour
             OnDestroyPoolObject,
             collectionCheck: true,
             defaultCapacity: 10,
-            maxSize: 50
-        );
+            maxSize: 50);
     }
 
     private void Start()
     {
         if (deckList == null || deckList.Count == 0)
         {
-            Debug.LogError("[CardManager] deckList kosong! Isi di Inspector.");
+            Debug.LogError("[CardManager] deckList kosong!");
             return;
         }
 
@@ -81,29 +70,22 @@ public class CardManager : MonoBehaviour
     // ---------------------------------------------------------------
 
     /// <summary>
-    /// Pakai kartu ke target enemy. Dipanggil oleh CardDraggable saat drop.
-    /// Return true jika berhasil, false jika resource tidak cukup atau invalid.
+    /// Pakai kartu ke target enemy.
+    ///
+    /// PERUBAHAN PERILAKU: kartu yang dipakai akan menghilang dengan animasi
+    /// lalu di-release ke pool — TIDAK langsung digantikan kartu baru.
+    /// Slot di tangan akan kosong sampai giliran berikutnya, saat
+    /// RefreshHandWithAnimation mengisi ulang seluruh tangan.
+    /// Layout sisa kartu menyesuaikan diri secara dinamis lewat HandManager.
     /// </summary>
     public bool UseCardOnTarget(CardDisplay card, Enemy targetEnemy)
     {
-        if (card == null)
-        {
-            Debug.LogError("[CardManager] Card null");
-            return false;
-        }
+        if (card == null) { Debug.LogError("[CardManager] Card null"); return false; }
 
         CardData cardData = card.CurrentCardData;
-        if (cardData == null)
-        {
-            Debug.LogError("[CardManager] CardData missing");
-            return false;
-        }
+        if (cardData == null) { Debug.LogError("[CardManager] CardData null"); return false; }
 
-        if (PlayerManager.Instance == null)
-        {
-            Debug.LogError("[CardManager] PlayerManager tidak ditemukan");
-            return false;
-        }
+        if (PlayerManager.Instance == null) { Debug.LogError("[CardManager] PlayerManager null"); return false; }
 
         if (!PlayerManager.Instance.CanAffordAndSpend(cardData.actionPointCost, cardData.manaCost))
         {
@@ -111,62 +93,38 @@ public class CardManager : MonoBehaviour
             return false;
         }
 
-        if (cardData.effects == null || cardData.effects.Count == 0)
+        Debug.Log($"[CardManager] Pakai kartu {cardData.cardName} ke {targetEnemy.name}");
+
+        if (cardData.baseDamage > 0)
+            targetEnemy.TakeDamage(cardData.baseDamage);
+
+        if (cardData.effects != null)
         {
-            Debug.LogWarning($"[CardManager] {cardData.cardName} tidak punya effects");
-            return false;
+            foreach (CardEffect effect in cardData.effects)
+            {
+                if (effect == null) continue;
+                effect.ExecuteEffect(targetEnemy, card);
+            }
         }
 
-        foreach (CardEffect effect in cardData.effects)
-        {
-            if (effect == null) continue;
-            effect.ExecuteEffect(targetEnemy, card);
-        }
-
-        DiscardCard(card);
-        DrawNextCard();
+        // Kartu menghilang dengan animasi lalu masuk discard pile.
+        // TIDAK ada DrawNextCard() di sini — slot dibiarkan kosong.
+        StartCoroutine(AnimateUsedCardThenDiscard(card));
 
         return true;
     }
 
-    /// <summary>
-    /// Ambil satu kartu dari draw pile ke tangan.
-    /// </summary>
-    public void DrawNextCard()
-    {
-        if (handCards.Count >= maxHandSize) return;
-
-        if (drawPile.Count == 0)
-            ReshuffleDiscardPile();
-
-        if (drawPile.Count == 0)
-        {
-            Debug.LogWarning("[CardManager] Tidak ada kartu tersisa");
-            return;
-        }
-
-        CardData card = drawPile[0];
-        drawPile.RemoveAt(0);
-        SpawnCardToHand(card);
-    }
-
-    /// <summary>
-    /// Isi tangan sampai maxHandSize. Dipanggil oleh TurnManager saat giliran player dimulai.
-    /// </summary>
     public void RefillHand()
     {
         while (handCards.Count < maxHandSize)
         {
-            if (drawPile.Count == 0 && discardPile.Count == 0)
-                break;
-
+            if (drawPile.Count == 0 && discardPile.Count == 0) break;
             DrawNextCard();
         }
     }
 
     public void SpawnCardToHand(CardData dataToSpawn)
     {
-         Debug.Log($"[CardDisplay] Initialize dipanggil dengan: {dataToSpawn?.cardName ?? "NULL"}");
         if (dataToSpawn == null || cardPool == null) return;
 
         CardDisplay spawnedCard = cardPool.Get();
@@ -175,10 +133,206 @@ public class CardManager : MonoBehaviour
         spawnedCard.transform.SetParent(handLayoutGroup, false);
         spawnedCard.Initialize(dataToSpawn);
         handCards.Add(spawnedCard);
+
+        RefreshLayout();
+    }
+
+    /// <summary>
+    /// Buang semua kartu di tangan dengan animasi, lalu isi ulang dengan kartu baru.
+    /// Ini SATU-SATUNYA tempat pooling/refill kartu terjadi —
+    /// dipanggil oleh TurnManager di awal giliran player yang baru.
+    /// </summary>
+    public void RefreshHandWithAnimation()
+    {
+        if (isRefreshingHand)
+        {
+            Debug.LogWarning("[CardManager] RefreshHandWithAnimation sudah berjalan, diabaikan");
+            return;
+        }
+
+        StartCoroutine(RefreshHandRoutine());
     }
 
     // ---------------------------------------------------------------
-    // DECK MANAGEMENT
+    // ANIMASI: KARTU DIPAKAI (ke player atau enemy)
+    // ---------------------------------------------------------------
+
+    /// <summary>
+    /// Animasi sederhana saat kartu dipakai: scale mengecil + fade out,
+    /// lalu kartu di-release ke pool. Slot tangan TIDAK diisi ulang di sini.
+    /// </summary>
+    private IEnumerator AnimateUsedCardThenDiscard(CardDisplay card)
+    {
+        if (card == null) yield break;
+
+        Transform   cardTransform = card.transform;
+        CanvasGroup cg            = card.GetComponent<CanvasGroup>();
+
+        if (cg != null) cg.blocksRaycasts = false;
+
+        Vector3 startScale = cardTransform.localScale;
+        float   startAlpha = cg != null ? cg.alpha : 1f;
+        float   elapsed    = 0f;
+
+        while (elapsed < useCardAnimDuration)
+        {
+            elapsed += Time.deltaTime;
+            float t  = elapsed / useCardAnimDuration;
+            float easedT = t * t;
+
+            cardTransform.localScale = Vector3.Lerp(startScale, Vector3.zero, easedT);
+            if (cg != null) cg.alpha  = Mathf.Lerp(startAlpha, 0f, easedT);
+
+            yield return null;
+        }
+
+        cardTransform.localScale = Vector3.zero;
+        if (cg != null) cg.alpha = 0f;
+
+        // Sekarang baru dipindahkan ke discard pile dan dilepas ke pool.
+        // Hand layout otomatis reflow karena child count berkurang
+        // (HandManager mendengarkan OnTransformChildrenChanged).
+        DiscardCard(card);
+    }
+
+    // ---------------------------------------------------------------
+    // HAND REFRESH ANIMATION (awal turn baru — satu-satunya tempat pooling)
+    // ---------------------------------------------------------------
+
+    private IEnumerator RefreshHandRoutine()
+    {
+        isRefreshingHand = true;
+
+        List<CardDisplay> cardsToDiscard = new List<CardDisplay>(handCards);
+
+        // FASE 1: kartu yang tersisa di tangan menghilang
+        foreach (CardDisplay card in cardsToDiscard)
+        {
+            if (card == null) continue;
+            StartCoroutine(AnimateCardOut(card));
+            yield return new WaitForSeconds(discardStagger);
+        }
+
+        yield return new WaitForSeconds(discardAnimDuration);
+
+        foreach (CardDisplay card in cardsToDiscard)
+        {
+            if (card == null) continue;
+            DiscardCard(card);
+        }
+
+        // FASE 2: isi ulang tangan penuh — pooling terjadi di sini saja
+        for (int i = 0; i < maxHandSize; i++)
+        {
+            if (drawPile.Count == 0) ReshuffleDiscardPile();
+            if (drawPile.Count == 0) break;
+
+            CardData data = drawPile[0];
+            drawPile.RemoveAt(0);
+
+            CardDisplay newCard = SpawnCardForAnimation(data);
+            if (newCard != null)
+                StartCoroutine(AnimateCardIn(newCard));
+
+            yield return new WaitForSeconds(spawnStagger);
+        }
+
+        isRefreshingHand = false;
+    }
+
+    private CardDisplay SpawnCardForAnimation(CardData dataToSpawn)
+    {
+        if (dataToSpawn == null || cardPool == null) return null;
+
+        CardDisplay spawnedCard = cardPool.Get();
+        if (spawnedCard == null) return null;
+
+        spawnedCard.transform.SetParent(handLayoutGroup, false);
+        spawnedCard.Initialize(dataToSpawn);
+        handCards.Add(spawnedCard);
+
+        RefreshLayout();
+        return spawnedCard;
+    }
+
+    private IEnumerator AnimateCardOut(CardDisplay card)
+    {
+        if (card == null) yield break;
+
+        Transform   cardTransform = card.transform;
+        CanvasGroup cg            = card.GetComponent<CanvasGroup>();
+
+        if (cg != null) cg.blocksRaycasts = false;
+
+        Vector3 startScale = cardTransform.localScale;
+        float   startAlpha = cg != null ? cg.alpha : 1f;
+        float   elapsed    = 0f;
+
+        while (elapsed < discardAnimDuration)
+        {
+            elapsed += Time.deltaTime;
+            float t  = elapsed / discardAnimDuration;
+            float easedT = t * t;
+
+            cardTransform.localScale = Vector3.Lerp(startScale, Vector3.zero, easedT);
+            if (cg != null) cg.alpha  = Mathf.Lerp(startAlpha, 0f, easedT);
+
+            yield return null;
+        }
+
+        cardTransform.localScale = Vector3.zero;
+        if (cg != null) cg.alpha = 0f;
+    }
+
+    private IEnumerator AnimateCardIn(CardDisplay card)
+    {
+        if (card == null) yield break;
+
+        Transform   cardTransform = card.transform;
+        CanvasGroup cg            = card.GetComponent<CanvasGroup>();
+
+        cardTransform.localScale = Vector3.zero;
+        if (cg != null) { cg.alpha = 0f; cg.blocksRaycasts = false; }
+
+        float elapsed = 0f;
+
+        while (elapsed < spawnAnimDuration)
+        {
+            elapsed += Time.deltaTime;
+            float t  = elapsed / spawnAnimDuration;
+
+            float overshoot = 1.15f;
+            float easedT    = 1f + (overshoot - 1f) * Mathf.Sin(t * Mathf.PI);
+            easedT = Mathf.Lerp(0f, easedT, t);
+
+            cardTransform.localScale = Vector3.one * Mathf.Min(easedT, overshoot);
+            if (cg != null) cg.alpha  = Mathf.Clamp01(t * 1.5f);
+
+            yield return null;
+        }
+
+        cardTransform.localScale = Vector3.one;
+        if (cg != null) { cg.alpha = 1f; cg.blocksRaycasts = true; }
+    }
+
+    // ---------------------------------------------------------------
+    // PRIVATE: DRAW (dipakai internal oleh RefillHand / starting hand)
+    // ---------------------------------------------------------------
+
+    private void DrawNextCard()
+    {
+        if (handCards.Count >= maxHandSize) return;
+
+        if (drawPile.Count == 0) ReshuffleDiscardPile();
+        if (drawPile.Count == 0) { Debug.LogWarning("[CardManager] Tidak ada kartu"); return; }
+
+        CardData card = drawPile[0];
+        drawPile.RemoveAt(0);
+        SpawnCardToHand(card);
+    }
+
+    // ---------------------------------------------------------------
+    // DECK
     // ---------------------------------------------------------------
 
     private void BuildDeck()
@@ -187,11 +341,9 @@ public class CardManager : MonoBehaviour
         discardPile.Clear();
         handCards.Clear();
         masterDeck.Clear();
-
         masterDeck.AddRange(deckList);
         drawPile.AddRange(masterDeck);
         ShuffleDrawPile();
-
         Debug.Log($"[CardManager] Deck siap: {drawPile.Count} kartu");
     }
 
@@ -204,60 +356,64 @@ public class CardManager : MonoBehaviour
     private void ReshuffleDiscardPile()
     {
         if (discardPile.Count == 0) return;
-
         drawPile.AddRange(discardPile);
         discardPile.Clear();
         ShuffleDrawPile();
-
-        Debug.Log("[CardManager] Discard pile dikocok kembali");
+        Debug.Log("[CardManager] Discard pile dikocok ulang");
     }
 
     private void ShuffleDrawPile()
     {
         for (int i = drawPile.Count - 1; i > 0; i--)
         {
-            int      j    = Random.Range(0, i + 1);
-            CardData temp = drawPile[i];
-            drawPile[i]   = drawPile[j];
-            drawPile[j]   = temp;
+            int j = Random.Range(0, i + 1);
+            (drawPile[i], drawPile[j]) = (drawPile[j], drawPile[i]);
         }
     }
 
     private void DiscardCard(CardDisplay card)
     {
         if (card == null) return;
-
-        CardData data = card.CurrentCardData;
-        if (data != null)
-            discardPile.Add(data);
-
+        if (card.CurrentCardData != null) discardPile.Add(card.CurrentCardData);
         handCards.Remove(card);
+
+        card.transform.localScale = Vector3.one;
+        CanvasGroup cg = card.GetComponent<CanvasGroup>();
+        if (cg != null) { cg.alpha = 1f; cg.blocksRaycasts = true; }
+
         cardPool.Release(card);
+
+        // Kartu hilang dari hierarchy (pool me-nonaktifkan GameObject) —
+        // pastikan sisa kartu di tangan reflow posisinya.
+        RefreshLayout();
     }
 
-    // ---------------------------------------------------------------
-    // POOL CALLBACKS
-    // ---------------------------------------------------------------
-
-    private CardDisplay CreateNewCardInstance()
+    /// <summary>
+    /// Minta HandManager menata ulang posisi kartu yang tersisa.
+    /// Dipanggil setiap kali jumlah kartu di tangan berubah
+    /// (dipakai, di-discard, atau spawn baru) agar layout selalu dinamis.
+    /// </summary>
+    private void RefreshLayout()
     {
-        if (cardPrefab == null || handLayoutGroup == null) return null;
-        return Instantiate(cardPrefab, handLayoutGroup);
+        handManager?.UpdateHandLayout();
     }
+
+    // ---------------------------------------------------------------
+    // POOL
+    // ---------------------------------------------------------------
+
+    private CardDisplay CreateNewCardInstance() =>
+        (cardPrefab != null && handLayoutGroup != null)
+            ? Instantiate(cardPrefab, handLayoutGroup)
+            : null;
 
     private void OnTakeCardFromPool(CardDisplay card)
     {
         if (card == null) return;
         card.gameObject.SetActive(true);
 
-        // Pastikan CanvasGroup tidak memblokir input
         CanvasGroup cg = card.GetComponent<CanvasGroup>();
-        if (cg != null)
-        {
-            cg.alpha          = 1f;
-            cg.blocksRaycasts = true;
-            cg.interactable   = true;
-        }
+        if (cg != null) { cg.alpha = 1f; cg.blocksRaycasts = true; cg.interactable = true; }
     }
 
     private void OnReturnCardToPool(CardDisplay card)
@@ -270,17 +426,12 @@ public class CardManager : MonoBehaviour
         if (card != null) Destroy(card.gameObject);
     }
 
-    // ---------------------------------------------------------------
-    // READ-ONLY PROPERTIES
-    // ---------------------------------------------------------------
-
-    public int DrawPileCount    => drawPile.Count;
-    public int DiscardPileCount => discardPile.Count;
-    public int HandCount        => handCards.Count;
+    public int DrawPileCount     => drawPile.Count;
+    public int DiscardPileCount  => discardPile.Count;
+    public int HandCount         => handCards.Count;
+    public bool IsRefreshingHand => isRefreshingHand;
 
     [ContextMenu("Deck Debug")]
-    private void DebugDeck()
-    {
-        Debug.Log($"[CardManager] Draw: {drawPile.Count} | Discard: {discardPile.Count} | Hand: {handCards.Count}");
-    }
+    private void DebugDeck() =>
+        Debug.Log($"[CardManager] Draw:{drawPile.Count} Discard:{discardPile.Count} Hand:{handCards.Count}");
 }

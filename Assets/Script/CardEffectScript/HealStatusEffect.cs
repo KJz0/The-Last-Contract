@@ -1,10 +1,4 @@
 using UnityEngine;
-
-/// <summary>
-/// Heal: memulihkan HP per turn.
-/// Berguna untuk buff musuh (boss regen) atau kartu support player.
-/// Stack behavior: jumlahkan value, perpanjang durasi.
-/// </summary>
 [CreateAssetMenu(
     fileName = "HealStatus",
     menuName  = "CardGame/Status Effects/Heal")]

@@ -1,8 +1,4 @@
 using UnityEngine;
-
-/// <summary>
-/// Effect kartu: apply Poison status ke target enemy.
-/// </summary>
 [CreateAssetMenu(
     fileName = "NewPoisonCardEffect",
     menuName  = "CardGame/Effects/Poison")]

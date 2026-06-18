@@ -1,8 +1,4 @@
 using UnityEngine;
-
-/// <summary>
-/// Effect kartu: berikan damage langsung ke target enemy.
-/// </summary>
 [CreateAssetMenu(
     fileName = "DamageEffect",
     menuName  = "CardGame/Effects/Damage")]

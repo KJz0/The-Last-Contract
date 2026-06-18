@@ -1,10 +1,4 @@
 using UnityEngine;
-
-/// <summary>
-/// Poison: deals damage per turn.
-/// Stack behavior: jika Poison sudah aktif, value dijumlahkan,
-/// duration diambil yang lebih panjang (tidak menumpuk durasi).
-/// </summary>
 [CreateAssetMenu(
     fileName = "PoisonStatus",
     menuName  = "CardGame/Status Effects/Poison")]

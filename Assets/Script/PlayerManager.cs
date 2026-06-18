@@ -2,10 +2,6 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 
-/// <summary>
-/// Mengelola stats player: HP, AP, Mana.
-/// Ghost health bar di-lerp secara visual untuk efek "juicy".
-/// </summary>
 public class PlayerManager : MonoBehaviour
 {
     public static PlayerManager Instance { get; private set; }
@@ -23,21 +19,22 @@ public class PlayerManager : MonoBehaviour
     [SerializeField] private Slider mainHpSlider;
     [SerializeField] private Slider ghostHpSlider;
 
-    [Header("Resource Sliders")]
-    [SerializeField] private Slider apSlider;
-    [SerializeField] private Slider manaSlider;
+    [Header("AP & Mana Orb Display")]
+    [Tooltip("Component yang mengatur visual AP (bulat polos) dan Mana (gelombang air)")]
+    [SerializeField] private ResourceOrbDisplay resourceOrbDisplay;
 
-    [Header("Resource Text")]
+    [Header("Resource Text (opsional, terpisah dari orb)")]
     [SerializeField] private TMP_Text hpText;
-    [SerializeField] private TMP_Text apText;
-    [SerializeField] private TMP_Text manaText;
 
-    [Header("Juicy Tuning")]
-    [SerializeField] private float ghostLerpSpeed = 3f;
+    [Header("Animation Tuning")]
+    [SerializeField] private float mainSmoothTime  = 0.1f;
+    [SerializeField] private float ghostDelay      = 0.5f;
+    [SerializeField] private float ghostSmoothTime = 0.3f;
 
-    // ---------------------------------------------------------------
-    // LIFECYCLE
-    // ---------------------------------------------------------------
+    private float hpTarget        = 0f;
+    private float mainVelocity    = 0f;
+    private float ghostVelocity   = 0f;
+    private float ghostDelayTimer = 0f;
 
     private void Awake()
     {
@@ -47,51 +44,52 @@ public class PlayerManager : MonoBehaviour
 
     private void Start()
     {
-        InitializeResources();
-        SetupSliders();
-        UpdateUIFields();
+        currentHealth = maxHealth;
+        currentAP     = maxAP;
+        currentMana   = maxMana;
+        hpTarget      = maxHealth;
+
+        if (mainHpSlider  != null) { mainHpSlider.maxValue  = maxHealth; mainHpSlider.value  = maxHealth; }
+        if (ghostHpSlider != null) { ghostHpSlider.maxValue = maxHealth; ghostHpSlider.value = maxHealth; }
+
+        resourceOrbDisplay?.SetAP(currentAP, maxAP);
+        resourceOrbDisplay?.SetMana(currentMana, maxMana);
+
+        UpdateHpText();
     }
 
     private void Update()
     {
-        UpdateGhostHealthBar();
+        AnimateHealthBars();
     }
 
-    // ---------------------------------------------------------------
-    // INITIALIZATION
-    // ---------------------------------------------------------------
-
-    private void InitializeResources()
+    private void AnimateHealthBars()
     {
-        currentHealth = maxHealth;
-        currentAP     = maxAP;
-        currentMana   = maxMana;
-    }
-
-    private void SetupSliders()
-    {
-        if (mainHpSlider != null)
+        if (mainHpSlider != null && !Mathf.Approximately(mainHpSlider.value, hpTarget))
         {
-            mainHpSlider.maxValue = maxHealth;
-            mainHpSlider.value    = currentHealth;
+            mainHpSlider.value = Mathf.SmoothDamp(mainHpSlider.value, hpTarget, ref mainVelocity, mainSmoothTime);
+            if (Mathf.Abs(mainHpSlider.value - hpTarget) < 0.1f)
+            {
+                mainHpSlider.value = hpTarget;
+                mainVelocity = 0f;
+            }
         }
 
         if (ghostHpSlider != null)
         {
-            ghostHpSlider.maxValue = maxHealth;
-            ghostHpSlider.value    = currentHealth;
-        }
-
-        if (apSlider != null)
-        {
-            apSlider.maxValue = maxAP;
-            apSlider.value    = currentAP;
-        }
-
-        if (manaSlider != null)
-        {
-            manaSlider.maxValue = maxMana;
-            manaSlider.value    = currentMana;
+            if (ghostDelayTimer > 0f)
+            {
+                ghostDelayTimer -= Time.deltaTime;
+            }
+            else if (!Mathf.Approximately(ghostHpSlider.value, hpTarget))
+            {
+                ghostHpSlider.value = Mathf.SmoothDamp(ghostHpSlider.value, hpTarget, ref ghostVelocity, ghostSmoothTime);
+                if (Mathf.Abs(ghostHpSlider.value - hpTarget) < 0.1f)
+                {
+                    ghostHpSlider.value = hpTarget;
+                    ghostVelocity = 0f;
+                }
+            }
         }
     }
 
@@ -99,100 +97,62 @@ public class PlayerManager : MonoBehaviour
     // HEALTH
     // ---------------------------------------------------------------
 
-    public void TakeDamage(int damageAmount)
+    public void TakeDamage(int amount)
     {
-        currentHealth -= damageAmount;
-        currentHealth  = Mathf.Clamp(currentHealth, 0, maxHealth);
+        if (amount <= 0) return;
 
-        if (mainHpSlider != null)
-            mainHpSlider.value = currentHealth;
+        currentHealth   = Mathf.Clamp(currentHealth - amount, 0, maxHealth);
+        hpTarget        = currentHealth;
+        ghostDelayTimer = ghostDelay;
 
-        UpdateUIFields();
+        UpdateHpText();
 
-        if (currentHealth <= 0)
-            OnPlayerDied();
-    }
-
-    private void UpdateGhostHealthBar()
-    {
-        if (ghostHpSlider == null || mainHpSlider == null) return;
-
-        if (!Mathf.Approximately(ghostHpSlider.value, mainHpSlider.value))
-        {
-            ghostHpSlider.value = Mathf.Lerp(
-                ghostHpSlider.value,
-                mainHpSlider.value,
-                Time.deltaTime * ghostLerpSpeed);
-        }
-    }
-
-    private void OnPlayerDied()
-    {
-        Debug.Log("[PlayerManager] Player mati! Game over.");
-        // TODO: trigger game over screen
+        if (currentHealth <= 0) OnPlayerDied();
     }
 
     // ---------------------------------------------------------------
     // RESOURCES
     // ---------------------------------------------------------------
 
-    /// <summary>
-    /// Cek apakah player mampu membayar cost, lalu langsung kurangi.
-    /// Return false jika tidak cukup (tidak ada resource yang dikurangi).
-    /// </summary>
     public bool CanAffordAndSpend(int apCost, int manaCost)
     {
-        if (!CanAfford(apCost, manaCost))
+        if (currentAP < apCost || currentMana < manaCost)
+        {
+            Debug.LogWarning($"[PlayerManager] Resource tidak cukup — AP:{currentAP}/{apCost} Mana:{currentMana}/{manaCost}");
             return false;
+        }
 
-        SpendResources(apCost, manaCost);
-        return true;
-    }
-
-    private bool CanAfford(int apCost, int manaCost)
-    {
-        return currentAP >= apCost && currentMana >= manaCost;
-    }
-
-    private void SpendResources(int apCost, int manaCost)
-    {
         currentAP   -= apCost;
         currentMana -= manaCost;
 
-        if (apSlider   != null) apSlider.value   = currentAP;
-        if (manaSlider != null) manaSlider.value  = currentMana;
+        resourceOrbDisplay?.SetAP(currentAP, maxAP);
+        resourceOrbDisplay?.SetMana(currentMana, maxMana);
 
-        UpdateUIFields();
+        return true;
     }
 
-    /// <summary>
-    /// Reset AP dan Mana ke maksimum. Dipanggil oleh TurnManager setiap awal giliran.
-    /// </summary>
     public void ResetTurnResources()
     {
         currentAP   = maxAP;
         currentMana = maxMana;
 
-        if (apSlider   != null) apSlider.value   = currentAP;
-        if (manaSlider != null) manaSlider.value  = currentMana;
-
-        UpdateUIFields();
+        resourceOrbDisplay?.SetAP(currentAP, maxAP);
+        resourceOrbDisplay?.SetMana(currentMana, maxMana);
     }
 
     // ---------------------------------------------------------------
     // UI
     // ---------------------------------------------------------------
 
-    private void UpdateUIFields()
+    private void UpdateHpText()
     {
-        if (hpText   != null) hpText.text   = $"{currentHealth} / {maxHealth}";
-        if (apText   != null) apText.text   = $"AP: {currentAP} / {maxAP}";
-        if (manaText != null) manaText.text = $"MANA: {currentMana} / {maxMana}";
+        if (hpText != null) hpText.text = $"{currentHealth} / {maxHealth}";
     }
 
-    // ---------------------------------------------------------------
-    // READ-ONLY PROPERTIES
-    // ---------------------------------------------------------------
+    private void OnPlayerDied()
+    {
+        Debug.Log("[PlayerManager] Player mati! Game over.");
+    }
 
     public int CurrentHealth => currentHealth;
     public int CurrentAP     => currentAP;

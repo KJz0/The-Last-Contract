@@ -3,203 +3,182 @@ using UnityEngine;
 using TMPro;
 using UnityEngine.UI;
 
-/// <summary>
-/// MonoBehaviour enemy. Untuk stats, assign EnemyData di Inspector.
-/// Mendukung status effect dinamis: Poison, Burn, Heal, Shield, dll.
-/// 
-/// BUG FIX: Die() sekarang memanggil TurnManager.RemoveEnemy agar
-/// musuh mati tidak terus di-tick dan menyerang.
-/// </summary>
 public class Enemy : MonoBehaviour
 {
     [Header("Data")]
     [SerializeField] private EnemyData enemyData;
 
     [Header("UI References")]
-    [SerializeField] private TMP_Text healthText;
     [SerializeField] private TMP_Text nameText;
-    [SerializeField] private Slider healthSlider;
+    [SerializeField] private Slider   mainHpSlider;
+    [SerializeField] private Slider   ghostHpSlider;
+    [SerializeField] private TMP_Text healthText;
 
-    // Runtime stats (diambil dari EnemyData saat Start)
+    [Header("Health Bar Animation")]
+    [SerializeField] private float mainSmoothTime  = 0.1f;
+    [SerializeField] private float ghostDelay      = 0.5f;
+    [SerializeField] private float ghostSmoothTime = 0.3f;
+
     private int maxHealth;
     private int currentHealth;
     private int attackDamage;
 
-    private readonly List<StatusEffectInstance> activeEffects =
-        new List<StatusEffectInstance>();
+    private float hpTarget        = 0f;
+    private float mainVelocity    = 0f;
+    private float ghostVelocity   = 0f;
+    private float ghostDelayTimer = 0f;
 
-    // ---------------------------------------------------------------
-    // INITIALIZATION
-    // ---------------------------------------------------------------
+    private readonly List<StatusEffectInstance> activeEffects = new();
 
     private void Start()
     {
-        if (enemyData == null)
-        {
-            Debug.LogError($"[Enemy] {gameObject.name}: EnemyData belum di-assign di Inspector!");
-            maxHealth    = 50;
-            attackDamage = 5;
-        }
-        else
+        if (enemyData != null)
         {
             maxHealth    = enemyData.maxHealth;
             attackDamage = enemyData.attackDamage;
-
-            if (nameText != null)
-                nameText.text = enemyData.enemyName;
-
-            // Apply passive effects saat spawn jika ada
-            if (enemyData.passiveEffectsOnSpawn != null)
-            {
-                foreach (StatusEffect fx in enemyData.passiveEffectsOnSpawn)
-                {
-                    if (fx != null)
-                        AddStatusEffect(fx, duration: 9999, value: 0);
-                }
-            }
+            if (nameText != null) nameText.text = enemyData.enemyName;
+        }
+        else
+        {
+            maxHealth    = 50;
+            attackDamage = 5;
+            Debug.LogWarning($"[Enemy] {name}: EnemyData belum di-assign, pakai default stats");
         }
 
         currentHealth = maxHealth;
-        UpdateHealthUI();
+        hpTarget      = maxHealth;
+
+        if (mainHpSlider  != null) { mainHpSlider.maxValue  = maxHealth; mainHpSlider.value  = maxHealth; }
+        if (ghostHpSlider != null) { ghostHpSlider.maxValue = maxHealth; ghostHpSlider.value = maxHealth; }
+
+        UpdateHealthText();
+    }
+
+    private void Update()
+    {
+        AnimateHealthBars();
+    }
+
+    private void AnimateHealthBars()
+    {
+        if (mainHpSlider != null && !Mathf.Approximately(mainHpSlider.value, hpTarget))
+        {
+            mainHpSlider.value = Mathf.SmoothDamp(mainHpSlider.value, hpTarget, ref mainVelocity, mainSmoothTime);
+            if (Mathf.Abs(mainHpSlider.value - hpTarget) < 0.1f)
+            {
+                mainHpSlider.value = hpTarget;
+                mainVelocity = 0f;
+            }
+        }
+
+        if (ghostHpSlider != null)
+        {
+            if (ghostDelayTimer > 0f)
+            {
+                ghostDelayTimer -= Time.deltaTime;
+            }
+            else if (!Mathf.Approximately(ghostHpSlider.value, hpTarget))
+            {
+                ghostHpSlider.value = Mathf.SmoothDamp(ghostHpSlider.value, hpTarget, ref ghostVelocity, ghostSmoothTime);
+                if (Mathf.Abs(ghostHpSlider.value - hpTarget) < 0.1f)
+                {
+                    ghostHpSlider.value = hpTarget;
+                    ghostVelocity = 0f;
+                }
+            }
+        }
     }
 
     // ---------------------------------------------------------------
     // COMBAT
     // ---------------------------------------------------------------
 
-    /// <summary>
-    /// Ambil damage masuk. Shield akan menyerap dulu sebelum HP dikurangi.
-    /// </summary>
-    public void TakeDamage(int damageAmount)
+    public void TakeDamage(int amount)
     {
-        if (damageAmount <= 0) return;
+        if (amount <= 0) return;
 
-        // Kurangi Shield terlebih dahulu
-        int remaining = AbsorbWithShield(damageAmount);
-
+        int remaining = AbsorbWithShield(amount);
         if (remaining <= 0)
         {
-            Debug.Log($"[Combat] {name}: damage diserap sepenuhnya oleh Shield");
-            UpdateHealthUI();
+            Debug.Log($"[Enemy] {name}: damage diserap Shield");
             return;
         }
 
-        currentHealth -= remaining;
-        currentHealth  = Mathf.Clamp(currentHealth, 0, maxHealth);
+        currentHealth   = Mathf.Clamp(currentHealth - remaining, 0, maxHealth);
+        hpTarget        = currentHealth;
+        ghostDelayTimer = ghostDelay;
 
-        Debug.Log($"[Combat] {name} kena {remaining} damage! HP: {currentHealth}/{maxHealth}");
-        UpdateHealthUI();
+        Debug.Log($"[Enemy] {name} kena {remaining} damage! HP: {currentHealth}/{maxHealth}");
+        UpdateHealthText();
 
-        if (currentHealth <= 0)
-            Die();
+        if (currentHealth <= 0) Die();
     }
 
-    /// <summary>
-    /// Heal HP enemy. Dipakai oleh HealStatusEffect.
-    /// </summary>
     public void Heal(int amount)
     {
         if (amount <= 0) return;
 
-        currentHealth += amount;
-        currentHealth  = Mathf.Clamp(currentHealth, 0, maxHealth);
+        currentHealth = Mathf.Clamp(currentHealth + amount, 0, maxHealth);
+        hpTarget      = currentHealth;
 
-        Debug.Log($"[Combat] {name} heal {amount} HP! HP: {currentHealth}/{maxHealth}");
-        UpdateHealthUI();
+        // Heal: ghost ikut langsung (tidak perlu delay untuk heal)
+        if (ghostHpSlider != null) ghostHpSlider.value = currentHealth;
+
+        UpdateHealthText();
     }
 
-    /// <summary>
-    /// Enemy menyerang player.
-    /// </summary>
     public void PerformAttack()
     {
         if (PlayerManager.Instance == null) return;
+        Debug.Log($"[Enemy] {name} menyerang player {attackDamage} damage");
         PlayerManager.Instance.TakeDamage(attackDamage);
-        Debug.Log($"[Combat] {name} menyerang player {attackDamage} damage");
     }
 
     // ---------------------------------------------------------------
     // STATUS EFFECTS
     // ---------------------------------------------------------------
 
-    /// <summary>
-    /// Tambah atau stack status effect ke enemy ini.
-    /// Jika effect sudah ada dan mendukung stacking, TryStack dipanggil.
-    /// Jika tidak, instance baru dibuat (stack paralel).
-    /// </summary>
     public void AddStatusEffect(StatusEffect effect, int duration, int value)
     {
-        if (effect == null)
-        {
-            Debug.LogWarning($"[Enemy] {name}: AddStatusEffect dipanggil dengan effect null");
-            return;
-        }
+        if (effect == null) return;
 
-        // Coba stack ke instance yang sudah ada
         foreach (StatusEffectInstance existing in activeEffects)
         {
-            if (existing.effect == effect)
+            if (existing.effect == effect && effect.TryStack(existing, duration, value))
             {
-                if (effect.TryStack(existing, duration, value))
-                {
-                    Debug.Log($"[Status] {name}: {effect.effectName} di-stack");
-                    return;
-                }
+                Debug.Log($"[Enemy] {name}: {effect.effectName} di-stack");
+                return;
             }
         }
 
-        // Tidak bisa di-stack, buat instance baru
         StatusEffectInstance instance = new StatusEffectInstance(effect, duration, value);
         activeEffects.Add(instance);
         effect.OnApply(this, instance);
     }
 
-    /// <summary>
-    /// Tick semua status effect aktif. Dipanggil oleh TurnManager setiap akhir turn player.
-    /// Iterasi mundur agar aman saat menghapus elemen.
-    /// </summary>
     public void TickEffects()
     {
         for (int i = activeEffects.Count - 1; i >= 0; i--)
         {
-            StatusEffectInstance instance = activeEffects[i];
+            StatusEffectInstance inst = activeEffects[i];
+            inst.effect.OnTick(this, inst);
+            inst.duration--;
 
-            instance.effect.OnTick(this, instance);
-            instance.duration--;
-
-            if (instance.duration <= 0)
+            if (inst.duration <= 0)
             {
-                instance.effect.OnExpire(this, instance);
+                inst.effect.OnExpire(this, inst);
                 activeEffects.RemoveAt(i);
             }
         }
     }
 
-    /// <summary>
-    /// Ambil total Shield yang sedang aktif (untuk ditampilkan di UI).
-    /// </summary>
-    public int GetTotalShield()
-    {
-        int total = 0;
-        foreach (StatusEffectInstance inst in activeEffects)
-        {
-            if (inst.effect is ShieldStatusEffect)
-                total += inst.value;
-        }
-        return total;
-    }
-
     // ---------------------------------------------------------------
-    // PRIVATE HELPERS
+    // PRIVATE
     // ---------------------------------------------------------------
 
-    /// <summary>
-    /// Kurangi Shield instances terlebih dahulu, return sisa damage.
-    /// </summary>
-    private int AbsorbWithShield(int incomingDamage)
+    private int AbsorbWithShield(int incoming)
     {
-        int remaining = incomingDamage;
-
+        int remaining = incoming;
         for (int i = activeEffects.Count - 1; i >= 0 && remaining > 0; i--)
         {
             StatusEffectInstance inst = activeEffects[i];
@@ -209,66 +188,28 @@ public class Enemy : MonoBehaviour
             {
                 inst.value -= remaining;
                 remaining   = 0;
-
-                if (inst.value <= 0)
-                {
-                    inst.effect.OnExpire(this, inst);
-                    activeEffects.RemoveAt(i);
-                }
+                if (inst.value <= 0) { inst.effect.OnExpire(this, inst); activeEffects.RemoveAt(i); }
             }
             else
             {
-                remaining  -= inst.value;
+                remaining -= inst.value;
                 inst.effect.OnExpire(this, inst);
                 activeEffects.RemoveAt(i);
             }
         }
-
         return remaining;
     }
 
-    private void UpdateHealthUI()
+    private void UpdateHealthText()
     {
         if (healthText != null)
             healthText.text = $"{currentHealth}/{maxHealth}";
-
-        if (healthSlider != null)
-        {
-            healthSlider.maxValue = maxHealth;
-            healthSlider.value    = currentHealth;
-        }
     }
 
-    /// <summary>
-    /// BUG FIX: Dihapus dari TurnManager saat mati agar tidak terus di-tick/menyerang.
-    /// </summary>
     private void Die()
     {
-        Debug.Log($"[Combat] {name} mati!");
-
-        // Hapus dari daftar aktif TurnManager
-        if (TurnManager.Instance != null)
-            TurnManager.Instance.RemoveEnemy(this);
-
+        Debug.Log($"[Enemy] {name} mati!");
+        TurnManager.Instance?.RemoveEnemy(this);
         gameObject.SetActive(false);
-    }
-
-    // ---------------------------------------------------------------
-    // EDITOR DEBUG
-    // ---------------------------------------------------------------
-
-    [ContextMenu("Debug Status Effects")]
-    private void DebugStatusEffects()
-    {
-        if (activeEffects.Count == 0)
-        {
-            Debug.Log($"[{name}] Tidak ada status effect aktif");
-            return;
-        }
-
-        foreach (StatusEffectInstance inst in activeEffects)
-        {
-            Debug.Log($"[{name}] {inst.effect.effectName}: value={inst.value}, duration={inst.duration}");
-        }
     }
 }

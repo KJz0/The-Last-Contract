@@ -2,9 +2,6 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 
-/// <summary>
-/// Controller untuk UI gameplay: tombol End Turn dan display state giliran.
-/// </summary>
 public class GameUIController : MonoBehaviour
 {
     [SerializeField] private Button   endTurnButton;

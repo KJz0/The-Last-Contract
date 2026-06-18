@@ -1,10 +1,4 @@
 using UnityEngine;
-
-/// <summary>
-/// ScriptableObject config untuk satu jenis musuh.
-/// Buat asset baru untuk setiap jenis musuh (Goblin, Skeleton, Boss, dll).
-/// Enemy MonoBehaviour akan membaca data dari sini di Awake/Start.
-/// </summary>
 [CreateAssetMenu(
     fileName = "NewEnemyData",
     menuName  = "CardGame/Enemy Data")]

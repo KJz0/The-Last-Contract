@@ -1,10 +1,5 @@
 using UnityEngine;
 
-/// <summary>
-/// Burn: deals damage per turn, sama seperti Poison tapi
-/// dianggap sebagai elemen Fire — bisa dibedakan untuk resistensi/interaksi.
-/// Stack behavior: refresh duration, ambil value tertinggi.
-/// </summary>
 [CreateAssetMenu(
     fileName = "BurnStatus",
     menuName  = "CardGame/Status Effects/Burn")]
@@ -26,9 +21,6 @@ public class BurnStatusEffect : StatusEffect
         Debug.Log($"[Status] {target.name}: api padam");
     }
 
-    /// <summary>
-    /// Burn stack: refresh duration, ambil value tertinggi (tidak dijumlah).
-    /// </summary>
     public override bool TryStack(
         StatusEffectInstance existing,
         int newDuration,
