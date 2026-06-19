@@ -46,7 +46,6 @@ public class CardDraggable : MonoBehaviour,
     // ---------------------------------------------------------------
     // POINTER EVENTS
     // ---------------------------------------------------------------
-
     public void OnPointerEnter(PointerEventData eventData)
     {
         isHovered = true;
@@ -59,6 +58,7 @@ public class CardDraggable : MonoBehaviour,
 
     public void OnPointerDown(PointerEventData eventData)
     {
+        // kosong — drag dimulai dari OnDrag
     }
 
     public void OnDrag(PointerEventData eventData)
@@ -82,18 +82,36 @@ public class CardDraggable : MonoBehaviour,
         isDragging = false;
         hasDragPos = false;
 
-        // DEBUG
-        raycastResults.Clear();
-        EventSystem.current.RaycastAll(eventData, raycastResults);
-        Debug.Log($"[Drop] Total hit: {raycastResults.Count}");
-        foreach (var r in raycastResults)
-            Debug.Log($"  → {r.gameObject.name} | hasEnemy: {r.gameObject.GetComponent<Enemy>() != null} | parentEnemy: {r.gameObject.GetComponentInParent<Enemy>() != null}");
+        // Cek dulu apakah di-drop ke fusion slot
+        FusionSlotTarget fusionSlot = FindFusionSlotUnderPointer(eventData);
+        if (fusionSlot != null)
+        {
+            bool placed = FusionManager.Instance != null &&
+                          FusionManager.Instance.PlaceCardInSlot(cardDisplay);
 
+            if (placed)
+            {
+                Debug.Log("[CardDraggable] Kartu ditempatkan di slot fusion");
+                return;
+            }
+
+            Debug.Log("[CardDraggable] Gagal menempatkan ke slot fusion (mungkin sudah penuh)");
+            // Lanjut cek enemy sebagai fallback tidak perlu — biarkan kartu kembali ke tangan
+            return;
+        }
+
+        // Kalau bukan fusion slot, cek enemy seperti biasa
         Enemy target = FindEnemyUnderPointer(eventData);
-        Debug.Log($"[Drop] Target found: {(target != null ? target.name : "NULL")}");
 
         if (target != null)
+        {
+            Debug.Log($"[CardDraggable] Drop ke enemy: {target.name}");
             CardManager.Instance?.UseCardOnTarget(cardDisplay, target);
+        }
+        else
+        {
+            Debug.Log("[CardDraggable] Tidak kena target apapun");
+        }
     }
 
     // ---------------------------------------------------------------
@@ -183,6 +201,27 @@ public class CardDraggable : MonoBehaviour,
             Enemy enemyInParent = result.gameObject.GetComponentInParent<Enemy>();
             if (enemyInParent != null)
                 return enemyInParent;
+        }
+
+        return null;
+    }
+
+    private FusionSlotTarget FindFusionSlotUnderPointer(PointerEventData eventData)
+    {
+        raycastResults.Clear();
+        EventSystem.current.RaycastAll(eventData, raycastResults);
+
+        foreach (RaycastResult result in raycastResults)
+        {
+            if (result.gameObject == gameObject) continue;
+            if (result.gameObject.transform.IsChildOf(transform)) continue;
+
+            if (result.gameObject.TryGetComponent<FusionSlotTarget>(out FusionSlotTarget slot))
+                return slot;
+
+            FusionSlotTarget slotInParent = result.gameObject.GetComponentInParent<FusionSlotTarget>();
+            if (slotInParent != null)
+                return slotInParent;
         }
 
         return null;

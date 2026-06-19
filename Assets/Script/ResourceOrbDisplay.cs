@@ -1,24 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
-
-/// <summary>
-/// Mengontrol tampilan orb AP dan Mana berbentuk bulat.
-///
-/// AP: Image dengan Image Type = Filled, Fill Method = Radial 360,
-///     tanpa efek apapun — hanya fillAmount yang berubah.
-///
-/// Mana: Image dengan material custom "CardGame/UI/ManaWaterFill",
-///       permukaan air bergelombang secara otomatis lewat shader,
-///       script ini hanya mengatur _FillAmount.
-///
-/// Setup di Inspector:
-/// 1. Buat GameObject lingkaran untuk AP, Image Type = Filled,
-///    Fill Method = Radial 360, assign ke field apOrbImage.
-/// 2. Buat GameObject lingkaran untuk Mana, Image Type = Simple,
-///    buat Material baru dengan Shader "CardGame/UI/ManaWaterFill",
-///    assign Material itu ke Image, lalu assign Image ke manaOrbImage.
-/// </summary>
 public class ResourceOrbDisplay : MonoBehaviour
 {
     [Header("AP Orb (bulat polos, tanpa animasi)")]

@@ -68,16 +68,6 @@ public class CardManager : MonoBehaviour
     // ---------------------------------------------------------------
     // PUBLIC API
     // ---------------------------------------------------------------
-
-    /// <summary>
-    /// Pakai kartu ke target enemy.
-    ///
-    /// PERUBAHAN PERILAKU: kartu yang dipakai akan menghilang dengan animasi
-    /// lalu di-release ke pool — TIDAK langsung digantikan kartu baru.
-    /// Slot di tangan akan kosong sampai giliran berikutnya, saat
-    /// RefreshHandWithAnimation mengisi ulang seluruh tangan.
-    /// Layout sisa kartu menyesuaikan diri secara dinamis lewat HandManager.
-    /// </summary>
     public bool UseCardOnTarget(CardDisplay card, Enemy targetEnemy)
     {
         if (card == null) { Debug.LogError("[CardManager] Card null"); return false; }
@@ -106,9 +96,6 @@ public class CardManager : MonoBehaviour
                 effect.ExecuteEffect(targetEnemy, card);
             }
         }
-
-        // Kartu menghilang dengan animasi lalu masuk discard pile.
-        // TIDAK ada DrawNextCard() di sini — slot dibiarkan kosong.
         StartCoroutine(AnimateUsedCardThenDiscard(card));
 
         return true;
@@ -136,12 +123,6 @@ public class CardManager : MonoBehaviour
 
         RefreshLayout();
     }
-
-    /// <summary>
-    /// Buang semua kartu di tangan dengan animasi, lalu isi ulang dengan kartu baru.
-    /// Ini SATU-SATUNYA tempat pooling/refill kartu terjadi —
-    /// dipanggil oleh TurnManager di awal giliran player yang baru.
-    /// </summary>
     public void RefreshHandWithAnimation()
     {
         if (isRefreshingHand)
@@ -156,11 +137,6 @@ public class CardManager : MonoBehaviour
     // ---------------------------------------------------------------
     // ANIMASI: KARTU DIPAKAI (ke player atau enemy)
     // ---------------------------------------------------------------
-
-    /// <summary>
-    /// Animasi sederhana saat kartu dipakai: scale mengecil + fade out,
-    /// lalu kartu di-release ke pool. Slot tangan TIDAK diisi ulang di sini.
-    /// </summary>
     private IEnumerator AnimateUsedCardThenDiscard(CardDisplay card)
     {
         if (card == null) yield break;
@@ -188,10 +164,6 @@ public class CardManager : MonoBehaviour
 
         cardTransform.localScale = Vector3.zero;
         if (cg != null) cg.alpha = 0f;
-
-        // Sekarang baru dipindahkan ke discard pile dan dilepas ke pool.
-        // Hand layout otomatis reflow karena child count berkurang
-        // (HandManager mendengarkan OnTransformChildrenChanged).
         DiscardCard(card);
     }
 
@@ -374,7 +346,17 @@ public class CardManager : MonoBehaviour
     private void DiscardCard(CardDisplay card)
     {
         if (card == null) return;
-        if (card.CurrentCardData != null) discardPile.Add(card.CurrentCardData);
+
+        CardData data = card.CurrentCardData;
+        if (data != null && !data.isOneTimeUse)
+        {
+            discardPile.Add(data);
+        }
+        else if (data != null && data.isOneTimeUse)
+        {
+            Debug.Log($"[CardManager] {data.cardName} adalah one-time-use, tidak masuk discard pile");
+        }
+
         handCards.Remove(card);
 
         card.transform.localScale = Vector3.one;
@@ -382,17 +364,59 @@ public class CardManager : MonoBehaviour
         if (cg != null) { cg.alpha = 1f; cg.blocksRaycasts = true; }
 
         cardPool.Release(card);
-
-        // Kartu hilang dari hierarchy (pool me-nonaktifkan GameObject) —
-        // pastikan sisa kartu di tangan reflow posisinya.
         RefreshLayout();
     }
+    public void ConsumeCardPermanently(CardDisplay card)
+    {
+        if (card == null) return;
 
-    /// <summary>
-    /// Minta HandManager menata ulang posisi kartu yang tersisa.
-    /// Dipanggil setiap kali jumlah kartu di tangan berubah
-    /// (dipakai, di-discard, atau spawn baru) agar layout selalu dinamis.
-    /// </summary>
+        Debug.Log($"[CardManager] Mengkonsumsi kartu permanen: {card.CurrentCardData?.cardName}");
+
+        StartCoroutine(AnimateConsumedCardThenRemove(card));
+    }
+
+    private IEnumerator AnimateConsumedCardThenRemove(CardDisplay card)
+    {
+        if (card == null) yield break;
+
+        Transform   cardTransform = card.transform;
+        CanvasGroup cg            = card.GetComponent<CanvasGroup>();
+
+        if (cg != null) cg.blocksRaycasts = false;
+
+        Vector3 startScale = cardTransform.localScale;
+        float   startAlpha = cg != null ? cg.alpha : 1f;
+        float   elapsed    = 0f;
+
+        while (elapsed < useCardAnimDuration)
+        {
+            elapsed += Time.deltaTime;
+            float t  = elapsed / useCardAnimDuration;
+            float easedT = t * t;
+
+            cardTransform.localScale = Vector3.Lerp(startScale, Vector3.zero, easedT);
+            if (cg != null) cg.alpha  = Mathf.Lerp(startAlpha, 0f, easedT);
+
+            yield return null;
+        }
+
+        cardTransform.localScale = Vector3.zero;
+        if (cg != null) cg.alpha = 0f;
+        handCards.Remove(card);
+
+        card.transform.localScale = Vector3.one;
+        if (cg != null) { cg.alpha = 1f; cg.blocksRaycasts = true; }
+
+        cardPool.Release(card);
+        RefreshLayout();
+    }
+    public void AddCardToDrawPileTop(CardData newCard)
+    {
+        if (newCard == null) return;
+
+        drawPile.Insert(0, newCard);
+        Debug.Log($"[CardManager] {newCard.cardName} ditambahkan ke draw pile (posisi teratas)");
+    }
     private void RefreshLayout()
     {
         handManager?.UpdateHandLayout();

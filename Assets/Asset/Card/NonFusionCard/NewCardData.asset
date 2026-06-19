@@ -10,17 +10,18 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: f8ac8c2bc83458b40bed534ca6978d0c, type: 3}
-  m_Name: Card attack
+  m_Name: NewCardData
   m_EditorClassIdentifier: Assembly-CSharp::CardData
-  cardID: 01
-  cardName: Poison Dart
-  cardType: 0
-  description: Deal 4 damage and make poison effect
+  cardID: 02
+  cardName: Fire
+  cardType: 1
+  description: 'Damage 4 Burn Effect
+
+'
   actionPointCost: 2
   manaCost: 1
   baseDamage: 4
-  effects:
-  - {fileID: 11400000, guid: f1b3816a0d0916a4ea3075672aeea80f, type: 2}
+  effects: []
   cardArtReference:
     m_AssetGUID: 
     m_SubObjectName: 
@@ -33,3 +34,6 @@ MonoBehaviour:
     m_SubObjectType: 
     m_SubObjectGUID: 
     m_EditorAssetChanged: 0
+  fusionRarity: 0
+  isOneTimeUse: 0
+  isFusionResult: 0
